@@ -3,7 +3,9 @@
 #include <sodium.h>
 #include <string.h>
 
-#define ONETIME_PREKEYS_NUMBER 100 
+#define ONETIME_PREKEYS_NUMBER 100
+#define OMEMO_INFO "OMEMO X3DH"
+#define SECRET_LEN 64 
 
 typedef struct {
 	unsigned char *public;
@@ -204,8 +206,8 @@ int request_secret_key(unsigned char *indentity_sk,
 		free(dhs[i]);
 	}
 
-	print_bin_hex(dh_concat, sizeof(dh_concat));
-	printf("%s", secret_key);
+	crypto_kdf_derive_from_key(secret_key, SECRET_LEN, 0, 
+							   OMEMO_INFO, dh_concat);
 
 	return 0;
 }
@@ -260,8 +262,9 @@ int response_secret_key(bundle_private_t *bundle,
 		free(dhs[i]);
 	}
 
-	print_bin_hex(dh_concat, sizeof(dh_concat));
-	printf("%s", secret_key);
+
+	crypto_kdf_derive_from_key(secret_key, SECRET_LEN, 0, 
+							   OMEMO_INFO, dh_concat);
 
 	return 0;
 }
@@ -301,7 +304,7 @@ int main() {
 					     sizeof(bundle_b.public.signed_prekey), 
 					  	 bundle_b.private.indentity);
 	unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
-	unsigned char secret_key_a[crypto_generichash_BYTES];
+	unsigned char secret_key_a[SECRET_LEN];
 
 	request_secret_key(bundle_a.private.indentity,
 					   &bundle_b.public,
