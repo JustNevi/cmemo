@@ -156,7 +156,10 @@ int request_secret_key(unsigned char *indentity_sk,
 	}
 
 	unsigned char indentity_x_sk[crypto_scalarmult_curve25519_BYTES];
-	crypto_sign_ed25519_sk_to_curve25519(indentity_x_sk, indentity_sk);
+	if (crypto_sign_ed25519_sk_to_curve25519(indentity_x_sk, 
+										     indentity_sk) != 0) {
+		return 2;
+	}
 
 	unsigned char ephemeral_sk[crypto_box_SECRETKEYBYTES];
 	keypair_t ephemeral_pair = {
@@ -165,7 +168,7 @@ int request_secret_key(unsigned char *indentity_sk,
 	};
 	if (generate_exchange_keypair(&ephemeral_pair) != 0) {
 		fprintf(stderr, "Failed to generate ephemeral keypair.\n");
-		return 2;
+		return 3;
 	}
 
 	unsigned char *onetime_prekey = get_opk_by_id(bundle->onetime_prekeys,
@@ -174,7 +177,7 @@ int request_secret_key(unsigned char *indentity_sk,
 											   	  opk_id);
 	if (onetime_prekey == NULL) {
 		fprintf(stderr, "Not valid onetime prekey id.\n");
-		return 3;
+		return 4;
 	}
 
 	int sc_pairs_len = 4;
