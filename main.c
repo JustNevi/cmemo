@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sodium.h>
+#include <string.h>
 
 #define ONETIME_PREKEYS_NUMBER 100 
 
@@ -32,12 +33,21 @@ typedef struct {
 } bundle_t;
 
 
+void print_bin_hex(unsigned char *bin, int len) {
+	const size_t hex_maxlen = (len * 2) + 1;
+	char *hex = malloc(hex_maxlen);
+	sodium_bin2hex(hex, hex_maxlen, bin, len);
+
+	printf("%s\n", hex);
+	free(hex);
+}
+
 int generate_sign_keypair(keypair_t *keypair) {
 	return crypto_sign_keypair(keypair->public, keypair->private);
 }
 
 int generate_exchange_keypair(keypair_t *keypair) {
-	randombytes_buf(keypair->private, sizeof(keypair->private));
+	randombytes_buf(keypair->private, crypto_box_SECRETKEYBYTES);
 	return crypto_scalarmult_base(keypair->public, keypair->private);
 }
 
@@ -50,6 +60,13 @@ int get_index_from_ids(int id, int *ids, int ids_number) {
 		}
 	}
 	return index;
+}
+
+void concat_array(unsigned char **array, int alen, 
+				  unsigned char *concat, int clen) {
+	for (int i = 0; i < alen; i++) {
+		memcpy(concat + clen * i, array[i], clen);
+	}   
 }
 
 int create_bundle(bundle_t *bundle) {
@@ -84,8 +101,8 @@ int create_bundle(bundle_t *bundle) {
 	bundle->private.opks_ids = malloc(sizeof(int) * ONETIME_PREKEYS_NUMBER);
 
 	for (int i = 0; i < ONETIME_PREKEYS_NUMBER; i++) {
-		bundle->public.onetime_prekeys[i] = malloc(sizeof(bundle->public.signed_prekey));
-		bundle->private.onetime_prekeys[i] = malloc(sizeof(bundle->private.signed_prekey));
+		bundle->public.onetime_prekeys[i] = malloc(crypto_box_PUBLICKEYBYTES);
+		bundle->private.onetime_prekeys[i] = malloc(crypto_box_SECRETKEYBYTES);
 
 		keypair_t onetime_prekey = {
 			.public = bundle->public.onetime_prekeys[i], 
@@ -102,7 +119,7 @@ int create_bundle(bundle_t *bundle) {
 	return 0;
 }
 
-int request_secret_key(keypair_t *indentity_pair, 
+int request_secret_key(unsigned char *indentity_sk, 
 					   bundle_public_t *bundle,
 					   unsigned char *prekey_sig,
 					   int opk_id,
@@ -118,7 +135,11 @@ int request_secret_key(keypair_t *indentity_pair,
 	}
 
 
-	unsigned char *ephemeral_sk = malloc(sizeof(bundle->signed_prekey));
+
+	unsigned char indentity_x_sk[crypto_scalarmult_curve25519_BYTES];
+	crypto_sign_ed25519_sk_to_curve25519(indentity_x_sk, indentity_sk);
+
+	unsigned char ephemeral_sk[crypto_box_SECRETKEYBYTES];
 	keypair_t ephemeral_pair = {
 		.public = ephemeral_pk,
 		.private = ephemeral_sk
@@ -133,19 +154,19 @@ int request_secret_key(keypair_t *indentity_pair,
 	unsigned char dh3[crypto_scalarmult_BYTES];
 	unsigned char dh4[crypto_scalarmult_BYTES];
 
-	if (crypto_scalarmult(dh1, 
-					   	  indentity_pair->private, 
+	if (crypto_scalarmult(dh1,
+					   	  indentity_x_sk, 
 					      bundle->signed_prekey) != 0) {
 		fprintf(stderr, "Failed to scalarmult DH1.\n");
 		return 3;
 	}
-	if (crypto_scalarmult(dh2, 
+	if (crypto_scalarmult(dh2,
 					   	  ephemeral_sk, 
 					      bundle->indentity) != 0) {
 		fprintf(stderr, "Failed to scalarmult DH2.\n");
 		return 4;
 	}
-	if (crypto_scalarmult(dh3, 
+	if (crypto_scalarmult(dh3,
 					   	  ephemeral_sk, 
 					      bundle->signed_prekey) != 0) {
 		fprintf(stderr, "Failed to scalarmult DH3.\n");
@@ -161,21 +182,78 @@ int request_secret_key(keypair_t *indentity_pair,
 	}
 
 	unsigned char *onetime_prekey = bundle->onetime_prekeys[opk_index];
-	if (crypto_scalarmult(dh4, 
+	if (crypto_scalarmult(dh4,
 					   	  ephemeral_sk, 
 					      onetime_prekey) != 0) {
 		fprintf(stderr, "Failed to scalarmult DH4.\n");
 		return 6;
 	}
 
+	unsigned char dh_concat[crypto_scalarmult_BYTES * 4];
+	unsigned char *dhs[] = {dh1, dh2, dh3, dh4};
+	concat_array(dhs, 4, dh_concat, crypto_scalarmult_BYTES);
 
-	free(ephemeral_sk);
-	ephemeral_sk = NULL;
+	print_bin_hex(dh_concat, sizeof(dh_concat));
 
 	return 0;
 }
 
-void response_secret_key() {
+int response_secret_key(bundle_private_t *bundle,
+					   	 int opk_id,
+						 unsigned char *indentity_pk,
+					   	 unsigned char *ephemeral_pk,
+					   	 unsigned char *secret_key) {
+
+	unsigned char indentity_x_pk[crypto_scalarmult_curve25519_BYTES];
+	crypto_sign_ed25519_pk_to_curve25519(indentity_x_pk, indentity_pk);
+
+	unsigned char dh1[crypto_scalarmult_BYTES];
+	unsigned char dh2[crypto_scalarmult_BYTES];
+	unsigned char dh3[crypto_scalarmult_BYTES];
+	unsigned char dh4[crypto_scalarmult_BYTES];
+
+	if (crypto_scalarmult(dh1,
+					   	  bundle->signed_prekey, 
+					      indentity_x_pk) != 0) {
+		fprintf(stderr, "Failed to scalarmult DH1.\n");
+		return 3;
+	}
+	if (crypto_scalarmult(dh2,
+						  bundle->indentity,
+					   	  ephemeral_pk) != 0) {
+		fprintf(stderr, "Failed to scalarmult DH2.\n");
+		return 4;
+	}
+	if (crypto_scalarmult(dh3,
+						  bundle->signed_prekey,
+					   	  ephemeral_pk) != 0) {
+		fprintf(stderr, "Failed to scalarmult DH3.\n");
+		return 5;
+	}
+
+	int opk_index = get_index_from_ids(opk_id,
+									   bundle->opks_ids,
+									   bundle->opks_number);
+	if (opk_index == -1) {
+		fprintf(stderr, "Not valid onetime prekey id.\n");
+		return 6;
+	}
+
+	unsigned char *onetime_prekey = bundle->onetime_prekeys[opk_index];
+	if (crypto_scalarmult(dh4,
+					   	  onetime_prekey, 
+					      ephemeral_pk) != 0) {
+		fprintf(stderr, "Failed to scalarmult DH4.\n");
+		return 6;
+	}
+
+	unsigned char dh_concat[crypto_scalarmult_BYTES * 4];
+	unsigned char *dhs[] = {dh1, dh2, dh3, dh4};
+	concat_array(dhs, 4, dh_concat, crypto_scalarmult_BYTES);
+
+	print_bin_hex(dh_concat, sizeof(dh_concat));
+
+	return 0;
 }
 
 void free_bundle(bundle_t *bundle) {
@@ -203,14 +281,13 @@ int main() {
 	bundle_t bundle_b;
 	create_bundle(&bundle_b);
 
-
-	size_t bin_len = sizeof(bundle_a.public.signed_prekey);
-	const size_t hex_maxlen = (bin_len * 2) + 1;
-	char *hex = malloc(hex_maxlen);
-	sodium_bin2hex(hex, hex_maxlen, bundle_a.public.onetime_prekeys[0], bin_len);
-
-	printf("%s\n", hex);
-
+	// print_bin_hex(bundle_a.private.indentity, crypto_sign_SECRETKEYBYTES);
+	// print_bin_hex(bundle_a.private.signed_prekey, crypto_box_SECRETKEYBYTES);
+	// print_bin_hex(bundle_a.private.onetime_prekeys[0], crypto_box_SECRETKEYBYTES);
+	// print_bin_hex(bundle_a.private.indentity, crypto_sign_PUBLICKEYBYTES);
+	// print_bin_hex(bundle_a.private.signed_prekey, crypto_box_PUBLICKEYBYTES);
+	// print_bin_hex(bundle_a.private.onetime_prekeys[0], crypto_box_PUBLICKEYBYTES);
+	// print_bin_hex(bundle_a.public.signed_prekey, crypto_box_PUBLICKEYBYTES);
 
 	unsigned char sig[crypto_sign_BYTES];
 	crypto_sign_detached(sig, NULL, 
@@ -218,20 +295,24 @@ int main() {
 					     sizeof(bundle_b.public.signed_prekey), 
 					  	 bundle_b.private.indentity);
 	unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
-	unsigned char secret_key[crypto_generichash_BYTES];
+	unsigned char secret_key_a[crypto_generichash_BYTES];
 
-	keypair_t indentity_kp = {bundle_a.public.indentity, bundle_a.private.indentity};
-	request_secret_key(&indentity_kp,
+	request_secret_key(bundle_a.private.indentity,
 					   &bundle_b.public,
 					   sig,
 					   0,
 					   ephemeral_pk,
-					   secret_key
-					   );
+					   secret_key_a);
+
+	unsigned char secret_key_b[crypto_generichash_BYTES];
+	response_secret_key(&bundle_b.private,
+					    0,
+					    bundle_a.public.indentity,
+					    ephemeral_pk,
+					    secret_key_b);
 
 	free_bundle(&bundle_a);	
 	free_bundle(&bundle_b);	
-	free(hex);
 
     return 0;
 }
