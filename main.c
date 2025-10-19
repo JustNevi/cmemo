@@ -6,6 +6,10 @@
 #define ONETIME_PREKEYS_NUMBER 100
 #define OMEMO_INFO "OMEMO X3DH"
 #define SECRET_LEN 64 
+#define SECRET_RTX_LEN 32 
+#define AES_KEY_LEN	crypto_aead_aes256gcm_KEYBYTES 
+#define NONCE_LEN crypto_aead_aes256gcm_NPUBBYTES 
+#define AES_MESSAGE_LEN (NONCE_LEN + crypto_aead_aes256gcm_ABYTES)
 
 typedef struct {
 	unsigned char *public;
@@ -89,6 +93,34 @@ unsigned char *get_opk_by_id(unsigned char **opks, int len, int *ids, int id) {
 	}
 	return opks[opk_index];
 }
+
+void aes_encrypt(unsigned char *ctxt, unsigned long long *ctxt_len,
+				 const unsigned char *msg, unsigned long long msg_len,
+				 unsigned char *key) {
+	unsigned char nonce[NONCE_LEN];
+	randombytes_buf(nonce, sizeof(nonce));
+
+	crypto_aead_aes256gcm_encrypt(ctxt + NONCE_LEN, ctxt_len,
+                            	  msg, msg_len,
+                              	  NULL, 0,
+                              	  NULL, nonce, key);
+
+	memcpy(ctxt, nonce, NONCE_LEN);
+}
+
+int aes_decrypt(unsigned char *msg, unsigned long long *msg_len,
+				unsigned char *ctxt, unsigned long long ctxt_len,
+				unsigned char *key) {
+	unsigned char nonce[NONCE_LEN];
+	memcpy(nonce, ctxt, NONCE_LEN);
+
+	return crypto_aead_aes256gcm_decrypt(msg, msg_len,
+									  	 NULL,
+									  	 ctxt + NONCE_LEN, ctxt_len,
+									  	 NULL, 0,
+									  	 nonce, key);
+}
+
 
 int create_bundle(bundle_t *bundle) {
 	keypair_t indentity = {
@@ -290,6 +322,9 @@ int main() {
         fprintf(stderr, "Libsodium initialization failed\n");
         return 1;
     }
+	 if (crypto_aead_aes256gcm_is_available() == 0) {
+		abort();
+	}
 
 	bundle_t bundle_a;
 	create_bundle(&bundle_a);
@@ -316,12 +351,32 @@ int main() {
 					   ephemeral_pk,
 					   secret_key_a);
 
-	unsigned char secret_key_b[crypto_generichash_BYTES];
+	unsigned char secret_key_b[SECRET_LEN];
 	response_secret_key(&bundle_b.private,
 					    0,
 					    bundle_a.public.indentity,
 					    ephemeral_pk,
 					    secret_key_b);
+
+
+	const unsigned char *message_a = (const unsigned char *) "Hello WORLD";
+	unsigned long long message_a_len = 11;
+	unsigned char cipher_msg[message_a_len + AES_MESSAGE_LEN];
+	unsigned long long ciphermsg_len;
+	aes_encrypt(cipher_msg, &ciphermsg_len, message_a, message_a_len, secret_key_a);
+
+	print_bin_hex(cipher_msg, ciphermsg_len);
+	
+	int status = 0;
+	unsigned char message_b[message_a_len + 1];
+	unsigned long long message_b_len;
+	status = aes_decrypt(message_b, &message_b_len, cipher_msg, ciphermsg_len, secret_key_b);
+	message_b[message_a_len] = '\0';
+
+	printf("STATUS: %d\n", status);
+	printf("%lld\n", message_b_len);
+	printf("%s\n", message_b);
+
 
 	free_bundle(&bundle_a);	
 	free_bundle(&bundle_b);	
