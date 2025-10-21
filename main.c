@@ -200,6 +200,7 @@ int decrypt_message(message_t *demsg, message_t *msg,
 		return 2;
 	}
 
+	free(wrapped.data);
 	free(msg_key.data);
 
 	return 0;
@@ -481,7 +482,7 @@ int main() {
 
 	message_t message_a = {
 		.data = (unsigned char *)"Hello WORLD",
-		.len = 11,
+		.len = 100,
 	};
 
 	message_t message_en = {
@@ -503,6 +504,8 @@ int main() {
 
  	print_bin_hex(message_en.data, MESSAGE_LEN + 11);
 
+	free(message_en.data);	
+	free(message_b.data);	
 	free_bundle(&bundle_a);	
 	free_bundle(&bundle_b);	
 
