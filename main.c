@@ -191,8 +191,11 @@ int decrypt_message(message_t *demsg, message_t *msg,
 		return 1;
 	}
 
-	//message_t cmsg = {demsg->data + dewrapped.len, demsg->len - enwrapped.len};
-	if (aes_decrypt(demsg, msg, msg_key.data) != 0) {
+	message_t cmsg = {
+		msg->data + wrapped.len,
+		msg->len - wrapped.len
+	};
+	if (aes_decrypt(demsg, &cmsg, msg_key.data) != 0) {
 		free(msg_key.data);
 		return 2;
 	}
