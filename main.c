@@ -5,16 +5,17 @@
 
 #define ONETIME_PREKEYS_NUMBER 100
 #define OMEMO_INFO "OMEMO X3DH"
-#define SECRET_LEN 64 
-#define SECRET_RTX_LEN 32 
-#define AES_KEY_LEN	crypto_aead_aes256gcm_KEYBYTES 
-#define NONCE_LEN crypto_aead_aes256gcm_NPUBBYTES 
+#define SECRET_LEN 64
+#define SECRET_RTX_LEN 32
+#define AES_KEY_LEN	crypto_aead_aes256gcm_KEYBYTES
+#define NONCE_LEN crypto_aead_aes256gcm_NPUBBYTES
 #define AES_MESSAGE_LEN (NONCE_LEN + crypto_aead_aes256gcm_ABYTES)
+#define MESSAGE_KEY_LEN 32
+#define MESSAGE_LEN (AES_MESSAGE_LEN + MESSAGE_KEY_LEN + AES_MESSAGE_LEN)
 
 typedef struct {
 	unsigned char *public;
 	unsigned char *private;
-
 } keypair_t;
 
 typedef struct {
@@ -38,6 +39,21 @@ typedef struct {
 	bundle_private_t private;
 } bundle_t;
 
+typedef struct {
+	unsigned char message[MESSAGE_KEY_LEN];
+	unsigned char wrap[MESSAGE_KEY_LEN];
+	unsigned char next_sk[SECRET_RTX_LEN];
+} message_keys_t;
+
+typedef struct {
+	unsigned char key[SECRET_RTX_LEN];
+	unsigned char nonce[NONCE_LEN];
+} secret_t;
+
+typedef struct {
+	unsigned char *data;
+	unsigned long long len;
+} message_t;
 
 void print_bin_hex(unsigned char *bin, int len) {
 	const size_t hex_maxlen = (len * 2) + 1;
@@ -94,33 +110,97 @@ unsigned char *get_opk_by_id(unsigned char **opks, int len, int *ids, int id) {
 	return opks[opk_index];
 }
 
-void aes_encrypt(unsigned char *ctxt, unsigned long long *ctxt_len,
-				 const unsigned char *msg, unsigned long long msg_len,
+void aes_encrypt(message_t *enmsg, message_t *msg,
 				 unsigned char *key) {
 	unsigned char nonce[NONCE_LEN];
 	randombytes_buf(nonce, sizeof(nonce));
 
-	crypto_aead_aes256gcm_encrypt(ctxt + NONCE_LEN, ctxt_len,
-                            	  msg, msg_len,
+	crypto_aead_aes256gcm_encrypt(enmsg->data + NONCE_LEN, 
+							      &enmsg->len,
+                            	  msg->data, 
+							      msg->len,
                               	  NULL, 0,
                               	  NULL, nonce, key);
 
-	memcpy(ctxt, nonce, NONCE_LEN);
+	memcpy(enmsg->data, nonce, NONCE_LEN);
+	enmsg->len += NONCE_LEN;
 }
 
-int aes_decrypt(unsigned char *msg, unsigned long long *msg_len,
-				unsigned char *ctxt, unsigned long long ctxt_len,
+int aes_decrypt(message_t *demsg, message_t *msg,
 				unsigned char *key) {
 	unsigned char nonce[NONCE_LEN];
-	memcpy(nonce, ctxt, NONCE_LEN);
+	memcpy(nonce, msg->data, NONCE_LEN);
 
-	return crypto_aead_aes256gcm_decrypt(msg, msg_len,
+	return crypto_aead_aes256gcm_decrypt(demsg->data, 
+									     &demsg->len,
 									  	 NULL,
-									  	 ctxt + NONCE_LEN, ctxt_len,
+									  	 msg->data + NONCE_LEN, 
+									     msg->len - NONCE_LEN,
 									  	 NULL, 0,
 									  	 nonce, key);
 }
 
+void derive_message_keys(message_keys_t *keys, secret_t *secret) {
+	crypto_kdf_derive_from_key(keys->message, MESSAGE_KEY_LEN, 0, 
+							   (const char *)secret->nonce, secret->key);
+	crypto_kdf_derive_from_key(keys->wrap, MESSAGE_KEY_LEN, 1, 
+							   OMEMO_INFO, secret->key);
+	crypto_kdf_derive_from_key(keys->next_sk, SECRET_RTX_LEN, 2, 
+							   OMEMO_INFO, secret->key);
+}
+
+void encrypt_message(message_t *enmsg, message_t *msg,
+					 secret_t *secret, unsigned char *next_sk) {
+	message_keys_t keys;
+	derive_message_keys(&keys, secret);
+	memcpy(next_sk, keys.next_sk, SECRET_RTX_LEN);
+
+	message_t wrapped;
+	wrapped.len = AES_MESSAGE_LEN + MESSAGE_KEY_LEN;
+	wrapped.data = malloc(sizeof(unsigned char *) * wrapped.len);
+	message_t msg_key = {keys.message, MESSAGE_KEY_LEN};
+	aes_encrypt(&wrapped, &msg_key, keys.wrap);
+
+	message_t cmsg = {
+		enmsg->data + wrapped.len,
+		enmsg->len - wrapped.len
+	};
+	aes_encrypt(&cmsg, msg, keys.message);
+
+	memcpy(enmsg->data, wrapped.data, wrapped.len);
+
+	free(wrapped.data);
+}
+
+int decrypt_message(message_t *demsg, message_t *msg,
+					 secret_t *secret, unsigned char *next_sk) {
+	message_keys_t keys;
+	derive_message_keys(&keys, secret);
+	memcpy(next_sk, keys.next_sk, SECRET_RTX_LEN);
+
+	message_t wrapped;
+	wrapped.len = AES_MESSAGE_LEN + MESSAGE_KEY_LEN;
+	wrapped.data = malloc(sizeof(unsigned char *) * wrapped.len);
+	memcpy(wrapped.data, msg->data, wrapped.len);
+
+	message_t msg_key;
+	msg_key.len = MESSAGE_KEY_LEN;
+	msg_key.data = malloc(sizeof(unsigned char *) * msg_key.len);
+	if (aes_decrypt(&msg_key, &wrapped, keys.wrap) != 0) {
+		free(msg_key.data);
+		return 1;
+	}
+
+	//message_t cmsg = {demsg->data + dewrapped.len, demsg->len - enwrapped.len};
+	if (aes_decrypt(demsg, msg, msg_key.data) != 0) {
+		free(msg_key.data);
+		return 2;
+	}
+
+	free(msg_key.data);
+
+	return 0;
+}
 
 int create_bundle(bundle_t *bundle) {
 	keypair_t indentity = {
@@ -359,24 +439,66 @@ int main() {
 					    secret_key_b);
 
 
-	const unsigned char *message_a = (const unsigned char *) "Hello WORLD";
-	unsigned long long message_a_len = 11;
-	unsigned char cipher_msg[message_a_len + AES_MESSAGE_LEN];
-	unsigned long long ciphermsg_len;
-	aes_encrypt(cipher_msg, &ciphermsg_len, message_a, message_a_len, secret_key_a);
+	// message_t message_a = {
+	// 	.data = (unsigned char *)"Hello WORLD",
+	// 	.len = 11,
+	// };
+	// unsigned char data_a[message_a.len + AES_MESSAGE_LEN];
+	// message_t message_en = {
+	// 	.data = data_a,
+	// 	.len = 11,
+	// };
+	// aes_encrypt(&message_en, &message_a, secret_key_a);
+	//
+	// print_bin_hex(message_en.data, message_en.len);
+	// 
+	// unsigned char data_b[message_a.len];
+	// message_t message_b = {
+	// 	.data = data_b,
+	// 	.len = 11,
+	// };
+	// int status = 0;
+	// status = aes_decrypt(&message_b, &message_en, secret_key_b);
+	// message_b.data[message_b.len] = '\0';
+	//
+	// printf("STATUS: %d\n", status);
+	// printf("%lld\n", message_b.len);
+	// printf("%s\n", message_b.data);
 
-	print_bin_hex(cipher_msg, ciphermsg_len);
 	
-	int status = 0;
-	unsigned char message_b[message_a_len + 1];
-	unsigned long long message_b_len;
-	status = aes_decrypt(message_b, &message_b_len, cipher_msg, ciphermsg_len, secret_key_b);
-	message_b[message_a_len] = '\0';
+	secret_t secret_a;
+	memcpy(secret_a.key, secret_key_a, SECRET_RTX_LEN);
+	memcpy(secret_a.nonce, "NONCE", 5);
+	secret_t secret_b;
+	memcpy(secret_b.key, secret_key_b, SECRET_RTX_LEN);
+	memcpy(secret_b.nonce, "NONCE", 5);
+
+ 	// print_bin_hex(secret_a.key, SECRET_RTX_LEN);
+ 	// print_bin_hex(secret_b.key, SECRET_RTX_LEN);
+
+	message_t message_a = {
+		.data = (unsigned char *)"Hello WORLD",
+		.len = 11,
+	};
+
+	message_t message_en = {
+		.data = malloc(sizeof(unsigned char *) * (MESSAGE_LEN + message_a.len)),
+		.len = MESSAGE_LEN + message_a.len,
+	};
+
+	encrypt_message(&message_en, &message_a, &secret_a, secret_a.key);
+
+	message_t message_b = {
+		.data = malloc(sizeof(unsigned char *) * message_a.len),
+		.len = message_a.len,
+	};
+	int status;
+	status = decrypt_message(&message_b, &message_en, &secret_b, secret_b.key);
 
 	printf("STATUS: %d\n", status);
-	printf("%lld\n", message_b_len);
-	printf("%s\n", message_b);
+	printf("DECRYPT: %s\n", message_b.data);
 
+ 	print_bin_hex(message_en.data, MESSAGE_LEN + 11);
 
 	free_bundle(&bundle_a);	
 	free_bundle(&bundle_b);	
