@@ -206,6 +206,26 @@ int decrypt_message(message_t *demsg, message_t *msg,
 	return 0;
 }
 
+void nonce_message(message_t *nmsg, unsigned char *next_n, 
+				   message_t *msg) {
+	randombytes_buf(next_n, NONCE_LEN);
+	
+	nmsg->len = msg->len + NONCE_LEN;
+	nmsg->data = malloc(sizeof(unsigned char *) * nmsg->len);
+
+	memcpy(nmsg->data + NONCE_LEN, msg->data, msg->len);
+	memcpy(nmsg->data, next_n, NONCE_LEN);
+}
+
+void unnonce_message(message_t *msg, unsigned char *next_n, 
+				   message_t *nmsg) {
+	msg->len = nmsg->len - NONCE_LEN;
+	msg->data = malloc(sizeof(unsigned char *) * msg->len);
+
+	memcpy(next_n, nmsg->data, NONCE_LEN);
+	memcpy(msg->data, nmsg->data + NONCE_LEN, msg->len);
+}
+
 int create_bundle(bundle_t *bundle) {
 	keypair_t indentity = {
 		.public = bundle->public.indentity, 
@@ -443,61 +463,46 @@ int main() {
 					    secret_key_b);
 
 
-	// message_t message_a = {
-	// 	.data = (unsigned char *)"Hello WORLD",
-	// 	.len = 11,
-	// };
-	// unsigned char data_a[message_a.len + AES_MESSAGE_LEN];
-	// message_t message_en = {
-	// 	.data = data_a,
-	// 	.len = 11,
-	// };
-	// aes_encrypt(&message_en, &message_a, secret_key_a);
-	//
-	// print_bin_hex(message_en.data, message_en.len);
-	// 
-	// unsigned char data_b[message_a.len];
-	// message_t message_b = {
-	// 	.data = data_b,
-	// 	.len = 11,
-	// };
-	// int status = 0;
-	// status = aes_decrypt(&message_b, &message_en, secret_key_b);
-	// message_b.data[message_b.len] = '\0';
-	//
-	// printf("STATUS: %d\n", status);
-	// printf("%lld\n", message_b.len);
-	// printf("%s\n", message_b.data);
-
-	
 	secret_t secret_a;
 	memcpy(secret_a.key, secret_key_a, SECRET_RTX_LEN);
-	memcpy(secret_a.nonce, "NONCE", 5);
+	memcpy(secret_a.nonce, "NONCENONCE__", NONCE_LEN);
 	secret_t secret_b;
 	memcpy(secret_b.key, secret_key_b, SECRET_RTX_LEN);
-	memcpy(secret_b.nonce, "NONCE", 5);
+	memcpy(secret_b.nonce, "NONCENONCE__", NONCE_LEN);
 
- 	// print_bin_hex(secret_a.key, SECRET_RTX_LEN);
- 	// print_bin_hex(secret_b.key, SECRET_RTX_LEN);
+	// message_t message_a = {
+	// 	.data = (unsigned char *)"Hello WORLD",
+	// 	.len = 11
+	// };
 
 	message_t message_a = {
 		.data = (unsigned char *)"Hello WORLD",
-		.len = 100,
+		.len = 11
 	};
+
+	message_t message_a_n;
+	nonce_message(&message_a_n, secret_a.nonce, &message_a);
 
 	message_t message_en = {
-		.data = malloc(sizeof(unsigned char *) * (MESSAGE_LEN + message_a.len)),
-		.len = MESSAGE_LEN + message_a.len,
+		.data = malloc(sizeof(unsigned char *) * (MESSAGE_LEN + message_a_n.len)),
+		.len = MESSAGE_LEN + message_a_n.len,
 	};
 
-	encrypt_message(&message_en, &message_a, &secret_a, secret_a.key);
+	encrypt_message(&message_en, &message_a_n, &secret_a, secret_a.key);
+
+	message_t message_b_n = {
+		.data = malloc(sizeof(unsigned char *) * message_a_n.len),
+		.len = message_a_n.len,
+	};
+	int status;
+	status = decrypt_message(&message_b_n, &message_en, &secret_b, secret_b.key);
 
 	message_t message_b = {
 		.data = malloc(sizeof(unsigned char *) * message_a.len),
 		.len = message_a.len,
 	};
-	int status;
-	status = decrypt_message(&message_b, &message_en, &secret_b, secret_b.key);
+
+	unnonce_message(&message_b, secret_b.nonce, &message_b_n);
 
 	printf("STATUS: %d\n", status);
 	printf("DECRYPT: %s\n", message_b.data);
