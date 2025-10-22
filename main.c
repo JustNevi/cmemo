@@ -497,10 +497,7 @@ int main() {
 	int status;
 	status = decrypt_message(&message_b_n, &message_en, &secret_b, secret_b.key);
 
-	message_t message_b = {
-		.data = malloc(sizeof(unsigned char *) * message_a.len),
-		.len = message_a.len,
-	};
+	message_t message_b;
 
 	unnonce_message(&message_b, secret_b.nonce, &message_b_n);
 
@@ -510,6 +507,8 @@ int main() {
  	print_bin_hex(message_en.data, MESSAGE_LEN + 11);
 
 	free(message_en.data);	
+	free(message_a_n.data);	
+	free(message_b_n.data);	
 	free(message_b.data);	
 	free_bundle(&bundle_a);	
 	free_bundle(&bundle_b);	
