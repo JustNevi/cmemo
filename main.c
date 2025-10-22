@@ -498,7 +498,6 @@ int main() {
 	status = decrypt_message(&message_b_n, &message_en, &secret_b, secret_b.key);
 
 	message_t message_b;
-
 	unnonce_message(&message_b, secret_b.nonce, &message_b_n);
 
 	printf("STATUS: %d\n", status);
