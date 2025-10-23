@@ -149,8 +149,8 @@ void derive_message_keys(message_keys_t *keys, secret_t *secret) {
 							   OMEMO_INFO, secret->key);
 }
 
-void encrypt_message(message_t *enmsg, message_t *msg,
-					 secret_t *secret, unsigned char *next_sk) {
+void encrypt_message(message_t *enmsg, unsigned char *next_sk,
+					 message_t *msg, secret_t *secret) {
 	message_keys_t keys;
 	derive_message_keys(&keys, secret);
 	memcpy(next_sk, keys.next_sk, SECRET_RTX_LEN);
@@ -172,8 +172,8 @@ void encrypt_message(message_t *enmsg, message_t *msg,
 	free(wrapped.data);
 }
 
-int decrypt_message(message_t *demsg, message_t *msg,
-					 secret_t *secret, unsigned char *next_sk) {
+int decrypt_message(message_t *demsg, unsigned char *next_sk, 
+					message_t *msg, secret_t *secret) {
 	message_keys_t keys;
 	derive_message_keys(&keys, secret);
 	memcpy(next_sk, keys.next_sk, SECRET_RTX_LEN);
@@ -425,7 +425,7 @@ void send_message(message_t *enmsg, secret_t *next_secret,
 	enmsg->len = MESSAGE_LEN + msgn.len;
 	enmsg->data = malloc(sizeof(unsigned char *) * enmsg->len);
 
-	encrypt_message(enmsg, &msgn, secret, next_secret->key);
+	encrypt_message(enmsg, next_secret->key, &msgn, secret);
 
 	free(msgn.data);
 }
@@ -436,7 +436,7 @@ int receive_message(message_t *msg, secret_t *next_secret,
 	msgn.len = enmsg->len - MESSAGE_LEN;
 	msgn.data = malloc(sizeof(unsigned char *) * msgn.len);
 
-	if (decrypt_message(&msgn, enmsg, secret, next_secret->key) != 0) {
+	if (decrypt_message(&msgn, next_secret->key, enmsg, secret) != 0) {
 		free(msgn.data);
 		return 1;
 	}
@@ -515,8 +515,8 @@ int main() {
 	// };
 
 	message_t message_a = {
-		.data = (unsigned char *)"Hello WORLD uu",
-		.len = 100
+		.data = (unsigned char *)"Hello WORLD",
+		.len = 11
 	};
 
 	message_t message_en;
