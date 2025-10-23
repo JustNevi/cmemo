@@ -1,4 +1,4 @@
-.PHONY: build run
+.PHONY: build run run_test
 
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99
