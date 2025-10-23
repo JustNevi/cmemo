@@ -187,6 +187,7 @@ int decrypt_message(message_t *demsg, message_t *msg,
 	msg_key.len = MESSAGE_KEY_LEN;
 	msg_key.data = malloc(sizeof(unsigned char *) * msg_key.len);
 	if (aes_decrypt(&msg_key, &wrapped, keys.wrap) != 0) {
+		free(wrapped.data);
 		free(msg_key.data);
 		return 1;
 	}
@@ -196,6 +197,7 @@ int decrypt_message(message_t *demsg, message_t *msg,
 		msg->len - wrapped.len
 	};
 	if (aes_decrypt(demsg, &cmsg, msg_key.data) != 0) {
+		free(wrapped.data);
 		free(msg_key.data);
 		return 2;
 	}
@@ -408,6 +410,43 @@ int response_secret_key(bundle_private_t *bundle,
 	return 0;
 }
 
+void split_secret_key(unsigned char * rx_secret, 
+					  unsigned char * tx_secret,
+					  unsigned char * secret) {
+	memcpy(rx_secret, secret, SECRET_RTX_LEN);
+	memcpy(tx_secret, secret + SECRET_RTX_LEN, SECRET_RTX_LEN);
+}
+
+void send_message(message_t *enmsg, secret_t *next_secret,
+				  message_t *msg, secret_t *secret) {
+	message_t msgn;
+	nonce_message(&msgn, next_secret->nonce, msg);
+
+	enmsg->len = MESSAGE_LEN + msgn.len;
+	enmsg->data = malloc(sizeof(unsigned char *) * enmsg->len);
+
+	encrypt_message(enmsg, &msgn, secret, next_secret->key);
+
+	free(msgn.data);
+}
+
+int receive_message(message_t *msg, secret_t *next_secret,
+				  	message_t *enmsg, secret_t *secret) {
+	message_t msgn;
+	msgn.len = enmsg->len - MESSAGE_LEN;
+	msgn.data = malloc(sizeof(unsigned char *) * msgn.len);
+
+	if (decrypt_message(&msgn, enmsg, secret, next_secret->key) != 0) {
+		free(msgn.data);
+		return 1;
+	}
+
+	unnonce_message(msg, next_secret->nonce, &msgn);
+
+	free(msgn.data);
+	return 0;
+}
+
 void free_bundle(bundle_t *bundle) {
 	for (int i = 0; i < bundle->public.opks_number; i++ ) {
 		free(bundle->public.onetime_prekeys[i]);
@@ -476,29 +515,16 @@ int main() {
 	// };
 
 	message_t message_a = {
-		.data = (unsigned char *)"Hello WORLD",
-		.len = 11
+		.data = (unsigned char *)"Hello WORLD uu",
+		.len = 100
 	};
 
-	message_t message_a_n;
-	nonce_message(&message_a_n, secret_a.nonce, &message_a);
+	message_t message_en;
+	send_message(&message_en, &secret_a, &message_a, &secret_a);
 
-	message_t message_en = {
-		.data = malloc(sizeof(unsigned char *) * (MESSAGE_LEN + message_a_n.len)),
-		.len = MESSAGE_LEN + message_a_n.len,
-	};
-
-	encrypt_message(&message_en, &message_a_n, &secret_a, secret_a.key);
-
-	message_t message_b_n = {
-		.data = malloc(sizeof(unsigned char *) * message_a_n.len),
-		.len = message_a_n.len,
-	};
-	int status;
-	status = decrypt_message(&message_b_n, &message_en, &secret_b, secret_b.key);
-
+	int status;	
 	message_t message_b;
-	unnonce_message(&message_b, secret_b.nonce, &message_b_n);
+	status = receive_message(&message_b, &secret_b, &message_en, &secret_b);
 
 	printf("STATUS: %d\n", status);
 	printf("DECRYPT: %s\n", message_b.data);
@@ -506,9 +532,7 @@ int main() {
  	print_bin_hex(message_en.data, MESSAGE_LEN + 11);
 
 	free(message_en.data);	
-	free(message_a_n.data);	
-	free(message_b_n.data);	
-	free(message_b.data);	
+	free(message_b.data);
 	free_bundle(&bundle_a);	
 	free_bundle(&bundle_b);	
 
