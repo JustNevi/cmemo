@@ -35,6 +35,16 @@ typedef struct {
 } bundle_private_t;
 
 typedef struct {
+	int len_i;
+	int len_s;
+	unsigned char *indentity;
+	unsigned char *signed_prekey;
+	unsigned char ***onetime_prekeys;
+	int *opks_number;
+	int **opks_ids;
+} bundle_pointer_t;
+
+typedef struct {
 	bundle_public_t public;
 	bundle_private_t private;
 } bundle_t;
@@ -64,58 +74,65 @@ void print_bin_hex(unsigned char *bin, int len) {
 	free(hex);
 }
 
-void bundle_pub_to_bin(unsigned char *bin, int *len,
-					 bundle_public_t *b) {
-	int ind_s = sizeof(b->indentity);
-	int spk_s = sizeof(b->signed_prekey);
-	int opk_s = sizeof(b->signed_prekey);
-	int int_s = sizeof(int);
-	int opks_n = b->opks_number;
+void bundle_to_bin(unsigned char *bin, int *len,
+				   bundle_pointer_t *bp) {
+	int len_i = bp->len_i;
+	int len_s = bp->len_s;
+	int len_o = bp->len_s;
+	int len_int = sizeof(int);
+	int opks_n = *bp->opks_number;
 
-	*len = ind_s + spk_s 
-		   + (spk_s * opks_n)
-		   + (int_s * opks_n)
-		   + int_s;
+	*len = len_i + len_s 
+		   + (len_s * opks_n)
+		   + (len_int * opks_n)
+		   + len_int;
 
-	memcpy(bin, b->indentity, ind_s);
-	bin += ind_s;
-	memcpy(bin, b->signed_prekey, spk_s);
-	bin += spk_s;
-	memcpy(bin, &b->opks_number, int_s);
-	bin += int_s;
+	memcpy(bin, bp->indentity, len_i);
+	bin += len_i;
+	memcpy(bin, bp->signed_prekey, len_s);
+	bin += len_s;
+	memcpy(bin, bp->opks_number, len_int);
+	bin += len_int;
+
+	int *opks_ids = *bp->opks_ids;
+	unsigned char **opks = *bp->onetime_prekeys;
+
 	for (int i = 0; i < opks_n; i++) {
-		memcpy(bin, &b->opks_ids[i], int_s);
-		bin += int_s;
-		memcpy(bin, b->onetime_prekeys[i], opk_s);
-		bin += opk_s;
+		memcpy(bin, &opks_ids[i], len_int);
+		bin += len_int;
+		memcpy(bin, opks[i], len_o);
+		bin += len_o;
 	}
 }
 
 
-void bin_to_bundle_pub(bundle_public_t *b, unsigned char *bin) {
-	int ind_s = sizeof(b->indentity);
-	int spk_s = sizeof(b->signed_prekey);
-	int opk_s = sizeof(b->signed_prekey);
-	int int_s = sizeof(int);
+void bin_to_bundle(bundle_pointer_t *bp, unsigned char *bin) {
+	int len_i = bp->len_i;
+	int len_s = bp->len_s;
+	int len_o = bp->len_s;
+	int len_int = sizeof(int);
 
-	memcpy(b->indentity, bin, ind_s);
-	bin += ind_s;
-	memcpy(b->signed_prekey, bin, spk_s);
-	bin += spk_s;
-	memcpy(&b->opks_number, bin, int_s);
-	bin += int_s;
+	memcpy(bp->indentity, bin, len_i);
+	bin += len_i;
+	memcpy(bp->signed_prekey, bin, len_s);
+	bin += len_s;
+	memcpy(bp->opks_number, bin, len_int);
+	bin += len_int;
 
-	int opks_n = b->opks_number;
-	b->opks_ids = malloc(int_s * opks_n);
-	b->onetime_prekeys = malloc(sizeof(unsigned char *) * opks_n);
+	int opks_n = *bp->opks_number;
+	int *opks_ids = malloc(len_int * opks_n);
+	unsigned char **opks = malloc(sizeof(unsigned char *) * opks_n);
+
+	*bp->opks_ids = opks_ids;
+	*bp->onetime_prekeys = opks;
 
 	for (int i = 0; i < opks_n; i++) {
-		b->onetime_prekeys[i] = malloc(sizeof(unsigned char *) * opk_s);
+		opks[i] = malloc(sizeof(unsigned char *) * len_o);
 
-		memcpy(&b->opks_ids[i], bin, int_s);
-		bin += int_s;
-		memcpy(b->onetime_prekeys[i], bin, opk_s);
-		bin += opk_s;
+		memcpy(&opks_ids[i], bin, len_int);
+		bin += len_int;
+		memcpy(opks[i], bin, len_o);
+		bin += len_o;
 	}
 
 }
@@ -503,6 +520,28 @@ int receive_message(message_t *msg, secret_t *next_secret,
 	return 0;
 }
 
+void make_bundle_pub_pointer(bundle_pointer_t *bp,
+							 bundle_public_t *b) {
+	bp->len_i = sizeof(b->indentity);
+	bp->len_s = sizeof(b->signed_prekey);
+	bp->indentity = b->indentity;
+	bp->signed_prekey = b->signed_prekey;
+	bp->onetime_prekeys = &b->onetime_prekeys;
+	bp->opks_number = &b->opks_number;
+	bp->opks_ids = &b->opks_ids;
+}
+
+void make_bundle_priv_pointer(bundle_pointer_t *bp,
+							 bundle_private_t *b) {
+	bp->len_i = sizeof(b->indentity);
+	bp->len_s = sizeof(b->signed_prekey);
+	bp->indentity = b->indentity;
+	bp->signed_prekey = b->signed_prekey;
+	bp->onetime_prekeys = &b->onetime_prekeys;
+	bp->opks_number = &b->opks_number;
+	bp->opks_ids = &b->opks_ids;
+}
+
 void free_bundle_pub(bundle_public_t *bundle) {
 	for (int i = 0; i < bundle->opks_number; i++ ) {
 		free(bundle->onetime_prekeys[i]);
@@ -574,30 +613,35 @@ int main() {
 	memcpy(secret_b.nonce, "NONCENONCE__", NONCE_LEN);
 
 	int len;	
-	unsigned char *bin_bundle = malloc(sizeof(unsigned char *) * 3668);
-	bundle_public_t bundle_bin;
-	bundle_pub_to_bin(bin_bundle, &len, &bundle_a.public);
-	bin_to_bundle_pub(&bundle_bin, bin_bundle);
+	unsigned char *bin_bundle = malloc(sizeof(unsigned char *) * 5000);
+	bundle_pointer_t bundle_a_p;
+	make_bundle_priv_pointer(&bundle_a_p, &bundle_a.private);
+	bundle_to_bin(bin_bundle, &len, &bundle_a_p);
+
+	bundle_private_t bundle_bin;
+	bundle_pointer_t bundle_bin_p;
+	make_bundle_priv_pointer(&bundle_bin_p, &bundle_bin);
+	bin_to_bundle(&bundle_bin_p, bin_bundle);
 
 	print_bin_hex(bundle_bin.indentity, sizeof(bundle_bin.indentity));
-	print_bin_hex(bundle_a.public.indentity, sizeof(bundle_a.public.indentity));
+	print_bin_hex(bundle_a.private.indentity, sizeof(bundle_a.private.indentity));
 	print_bin_hex(bundle_bin.signed_prekey, sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_a.public.signed_prekey, sizeof(bundle_a.public.signed_prekey));
+	print_bin_hex(bundle_a.private.signed_prekey, sizeof(bundle_a.private.signed_prekey));
 
 	printf("%d\n", bundle_bin.opks_number);
-	printf("%d\n", bundle_a.public.opks_number);
+	printf("%d\n", bundle_a.private.opks_number);
 
 	printf("%d\n", bundle_bin.opks_ids[0]);
-	printf("%d\n", bundle_a.public.opks_ids[0]);
+	printf("%d\n", bundle_a.private.opks_ids[0]);
 	printf("%d\n", bundle_bin.opks_ids[88]);
-	printf("%d\n", bundle_a.public.opks_ids[88]);
+	printf("%d\n", bundle_a.private.opks_ids[88]);
 
 	print_bin_hex(bundle_bin.onetime_prekeys[0], sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_a.public.onetime_prekeys[0], sizeof(bundle_bin.signed_prekey));
+	print_bin_hex(bundle_a.private.onetime_prekeys[0], sizeof(bundle_bin.signed_prekey));
 	print_bin_hex(bundle_bin.onetime_prekeys[50], sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_a.public.onetime_prekeys[50], sizeof(bundle_bin.signed_prekey));
+	print_bin_hex(bundle_a.private.onetime_prekeys[50], sizeof(bundle_bin.signed_prekey));
 	print_bin_hex(bundle_bin.onetime_prekeys[99], sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_a.public.onetime_prekeys[99], sizeof(bundle_bin.signed_prekey));
+	print_bin_hex(bundle_a.private.onetime_prekeys[99], sizeof(bundle_bin.signed_prekey));
 
 	// message_t message_a = {
 	// 	.data = (unsigned char *)"Hello WORLD",
@@ -625,7 +669,7 @@ int main() {
 	free(message_en.data);	
 	free(message_b.data);
 	free(bin_bundle);
-	free_bundle_pub(&bundle_bin);
+	free_bundle_priv(&bundle_bin);
 	free_bundle(&bundle_a);	
 	free_bundle(&bundle_b);	
 
