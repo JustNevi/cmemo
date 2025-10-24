@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <sodium.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 #define ONETIME_PREKEYS_NUMBER 100
 #define OMEMO_INFO "OMEMO X3DH"
@@ -12,6 +14,17 @@
 #define AES_MESSAGE_LEN (NONCE_LEN + crypto_aead_aes256gcm_ABYTES)
 #define MESSAGE_KEY_LEN 32
 #define MESSAGE_LEN (AES_MESSAGE_LEN + MESSAGE_KEY_LEN + AES_MESSAGE_LEN)
+
+#define DIR ".cmemo"
+#define MAX_PATH_LEN 100
+#define UNITS_DIR "units"
+#define UNIT_DIR_LEN 32 
+#define PRIVATE_BUNDLE_FILE "private.bl"
+#define PUBLIC_BUNDLE_FILE "public.bl"
+#define SECRET_RX_FILE "secret_rx.sk"
+#define SECRET_TX_FILE "secret_tx.sk"
+
+extern int errno;
 
 typedef struct {
 	unsigned char *public;
@@ -74,7 +87,23 @@ void print_bin_hex(unsigned char *bin, int len) {
 	free(hex);
 }
 
-void bundle_to_bin(unsigned char *bin, int *len,
+int bin_fingerprint(char **hex,
+					 unsigned char *bin, int blen) {
+	int hashlen = crypto_generichash_BYTES;
+
+	unsigned char fp[hashlen];
+	if (crypto_generichash(fp, hashlen, 
+					   	   bin, blen, 
+						   NULL, 0) != 0) {
+		return 1;
+	}
+	const size_t hex_maxlen = (hashlen * 2) + 1;
+	*hex = malloc(hex_maxlen);
+	sodium_bin2hex(*hex, hex_maxlen, fp, hashlen);
+
+	return 0;
+}
+void bundle_to_bin(unsigned char **binp, int *len,
 				   bundle_pointer_t *bp) {
 	int len_i = bp->len_i;
 	int len_s = bp->len_s;
@@ -86,6 +115,9 @@ void bundle_to_bin(unsigned char *bin, int *len,
 		   + (len_s * opks_n)
 		   + (len_int * opks_n)
 		   + len_int;
+
+	*binp = malloc(sizeof(unsigned char *) * *len);
+	unsigned char *bin = *binp;
 
 	memcpy(bin, bp->indentity, len_i);
 	bin += len_i;
@@ -134,7 +166,16 @@ void bin_to_bundle(bundle_pointer_t *bp, unsigned char *bin) {
 		memcpy(opks[i], bin, len_o);
 		bin += len_o;
 	}
+}
 
+void secret_to_bin(unsigned char *bin, secret_t *sc) {
+	memcpy(bin, sc->key, sizeof(sc->key));
+	memcpy(bin, sc->nonce, sizeof(sc->nonce));
+}
+
+void bin_to_secret(secret_t *sc, unsigned char *bin) {
+	memcpy(sc->key, bin, sizeof(sc->key));
+	memcpy(sc->nonce, bin +sizeof(sc->key), sizeof(sc->nonce));
 }
 
 int generate_sign_keypair(keypair_t *keypair) {
@@ -483,11 +524,11 @@ int response_secret_key(bundle_private_t *bundle,
 	return 0;
 }
 
-void split_secret_key(unsigned char * rx_secret, 
-					  unsigned char * tx_secret,
-					  unsigned char * secret) {
-	memcpy(rx_secret, secret, SECRET_RTX_LEN);
-	memcpy(tx_secret, secret + SECRET_RTX_LEN, SECRET_RTX_LEN);
+void split_secret_key(unsigned char *secret_rx, 
+					  unsigned char *secret_tx,
+					  unsigned char *secret) {
+	memcpy(secret_rx, secret, SECRET_RTX_LEN);
+	memcpy(secret_tx, secret + SECRET_RTX_LEN, SECRET_RTX_LEN);
 }
 
 void send_message(message_t *enmsg, secret_t *next_secret,
@@ -563,6 +604,178 @@ void free_bundle(bundle_t *bundle) {
  	free_bundle_priv(&bundle->private);
 }
 
+void pathcat(char *base, char *add) {
+	strcat(base, "/");
+	strcat(base, add);
+}
+
+void make_path(char *path, char *base, 
+			   char *add) {
+	memcpy(path, base, strlen(base) + 1);
+	pathcat(path, add);
+}
+
+void get_work_dir(char *dir) {
+	char *home = getenv("HOME");
+	make_path(dir, home, DIR);
+}
+
+int read_bin(unsigned char *bin, int *len,
+			  FILE *f) {
+	if (errno == ENOENT) {
+		return 1;
+	}
+
+	int byte;
+	while ((byte = fgetc(f)) != EOF) {
+		unsigned char c = (unsigned char)byte;
+		bin[*len] = c;
+		(*len)++;
+	}
+	return 0;
+}
+
+int write_bin(unsigned char *bin, int len,
+			  FILE *f) {
+	int wlen = fwrite(bin, sizeof(unsigned char), 
+					  len, f);
+
+	if (wlen != len) {
+		return 1;
+	}
+	return 0;
+}
+
+
+int read_secret(secret_t *s, FILE *f) {
+	int len = SECRET_RTX_LEN + NONCE_LEN;	
+	unsigned char bin[len];	
+
+	if (read_bin(bin, &len, f) != 0) {
+		return 1;
+	}
+	bin_to_secret(s, bin);
+
+	return 0;
+}
+
+int write_secret(secret_t *s, FILE *f) {
+	int len = SECRET_RTX_LEN + NONCE_LEN;	
+	unsigned char bin[len];	
+	secret_to_bin(bin, s);
+
+	return write_bin(bin, len, f);
+}
+
+int read_bundle_pointer(bundle_pointer_t *bp,
+						FILE *f) {
+	int len;
+	unsigned char *bin = malloc(sizeof(unsigned char *)
+							    * sizeof(int));
+	if (read_bin(bin, &len, f) != 0) {
+		free(bin);
+		return 1;
+	}
+	bin_to_bundle(bp, bin);
+
+	free(bin);
+	return 0;
+}
+
+int write_bundle_pointer(bundle_pointer_t *bp,
+						 FILE *f) {
+	int len;	
+	unsigned char *bin;	
+	bundle_to_bin(&bin, &len, bp);
+
+	return write_bin(bin, len, f);
+}
+
+int store_bundle_pointer(bundle_pointer_t *bp, 
+						 char *dir, char *name) {
+	int status;
+	char path[MAX_PATH_LEN];	
+	make_path(path, dir, name);
+
+	FILE *f = fopen(path, "w");
+	status = write_bundle_pointer(bp, f);
+
+	chmod(path, S_IRUSR | S_IWUSR);
+
+	fclose(f);
+	return status;
+}
+
+int store_unit_bundle(bundle_pointer_t *bp,
+					  char *dir) {
+	int status;
+
+	char path[MAX_PATH_LEN];
+	make_path(path, dir, UNITS_DIR);
+
+	status = mkdir(path, S_IRWXU);
+
+	if (status != 0 && errno != EEXIST) {
+		fprintf(stderr, "Unable to store unit bundle.\n");
+		return 1;
+	}
+
+	char *fp;
+	if (bin_fingerprint(&fp, bp->indentity, 
+					 	bp->len_i) != 0) {
+		free(fp);
+		return 2;
+	}
+
+	char path_u[MAX_PATH_LEN];
+	make_path(path_u, path, fp);
+	status = mkdir(path_u, S_IRWXU);
+
+	if (store_bundle_pointer(bp, path_u, 
+						     PUBLIC_BUNDLE_FILE) != 0) {
+		free(fp);
+		return 3;
+	}
+
+	free(fp);
+	return 0;
+}
+
+int store_bundle(bundle_t *bundle, char *dir) {
+	int status;
+
+	bundle_pointer_t pub_bl_p;
+	make_bundle_pub_pointer(&pub_bl_p, 
+						    &bundle->public);
+	bundle_pointer_t priv_bl_p;
+	make_bundle_priv_pointer(&priv_bl_p, 
+						     &bundle->private);
+
+	status = store_bundle_pointer(&pub_bl_p, dir, 
+					     		  PUBLIC_BUNDLE_FILE);
+	status = store_bundle_pointer(&priv_bl_p, dir, 
+							      PRIVATE_BUNDLE_FILE);
+	return status;
+}
+
+
+int init(char *work_dir) {
+	int status;
+	status = mkdir(work_dir, S_IRWXU);
+
+	if (status != 0 && errno != EEXIST) {
+		fprintf(stderr, "Unable to init.\n");
+		return 1;
+	}
+	
+	bundle_t bundle;
+	create_bundle(&bundle);
+
+	status = store_bundle(&bundle, work_dir);
+
+	return 0;
+}
+
 int main() {
     if (sodium_init() == -1) {
         fprintf(stderr, "Libsodium initialization failed\n");
@@ -572,106 +785,10 @@ int main() {
 		abort();
 	}
 
-	bundle_t bundle_a;
-	create_bundle(&bundle_a);
+	char work_dir[MAX_PATH_LEN];
+	get_work_dir(work_dir);
 
-	bundle_t bundle_b;
-	create_bundle(&bundle_b);
-
-	// print_bin_hex(bundle_a.private.indentity, crypto_sign_SECRETKEYBYTES);
-	// print_bin_hex(bundle_a.private.signed_prekey, crypto_box_SECRETKEYBYTES);
-	// print_bin_hex(bundle_a.private.onetime_prekeys[0], crypto_box_SECRETKEYBYTES);
-
-	unsigned char sig[crypto_sign_BYTES];
-	crypto_sign_detached(sig, NULL, 
-					     bundle_b.public.signed_prekey, 
-					     sizeof(bundle_b.public.signed_prekey), 
-					  	 bundle_b.private.indentity);
-	unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
-	unsigned char secret_key_a[SECRET_LEN];
-
-	request_secret_key(bundle_a.private.indentity,
-					   &bundle_b.public,
-					   sig,
-					   0,
-					   ephemeral_pk,
-					   secret_key_a);
-
-	unsigned char secret_key_b[SECRET_LEN];
-	response_secret_key(&bundle_b.private,
-					    0,
-					    bundle_a.public.indentity,
-					    ephemeral_pk,
-					    secret_key_b);
-
-
-	secret_t secret_a;
-	memcpy(secret_a.key, secret_key_a, SECRET_RTX_LEN);
-	memcpy(secret_a.nonce, "NONCENONCE__", NONCE_LEN);
-	secret_t secret_b;
-	memcpy(secret_b.key, secret_key_b, SECRET_RTX_LEN);
-	memcpy(secret_b.nonce, "NONCENONCE__", NONCE_LEN);
-
-	int len;	
-	unsigned char *bin_bundle = malloc(sizeof(unsigned char *) * 5000);
-	bundle_pointer_t bundle_a_p;
-	make_bundle_priv_pointer(&bundle_a_p, &bundle_a.private);
-	bundle_to_bin(bin_bundle, &len, &bundle_a_p);
-
-	bundle_private_t bundle_bin;
-	bundle_pointer_t bundle_bin_p;
-	make_bundle_priv_pointer(&bundle_bin_p, &bundle_bin);
-	bin_to_bundle(&bundle_bin_p, bin_bundle);
-
-	print_bin_hex(bundle_bin.indentity, sizeof(bundle_bin.indentity));
-	print_bin_hex(bundle_a.private.indentity, sizeof(bundle_a.private.indentity));
-	print_bin_hex(bundle_bin.signed_prekey, sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_a.private.signed_prekey, sizeof(bundle_a.private.signed_prekey));
-
-	printf("%d\n", bundle_bin.opks_number);
-	printf("%d\n", bundle_a.private.opks_number);
-
-	printf("%d\n", bundle_bin.opks_ids[0]);
-	printf("%d\n", bundle_a.private.opks_ids[0]);
-	printf("%d\n", bundle_bin.opks_ids[88]);
-	printf("%d\n", bundle_a.private.opks_ids[88]);
-
-	print_bin_hex(bundle_bin.onetime_prekeys[0], sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_a.private.onetime_prekeys[0], sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_bin.onetime_prekeys[50], sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_a.private.onetime_prekeys[50], sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_bin.onetime_prekeys[99], sizeof(bundle_bin.signed_prekey));
-	print_bin_hex(bundle_a.private.onetime_prekeys[99], sizeof(bundle_bin.signed_prekey));
-
-	// message_t message_a = {
-	// 	.data = (unsigned char *)"Hello WORLD",
-	// 	.len = 11
-	// };
-
-	message_t message_a = {
-		.data = (unsigned char *)"Hello WORLD",
-		.len = 11
-	};
-
-	message_t message_en;
-	send_message(&message_en, &secret_a, &message_a, &secret_a);
-
-	int status;	
-	message_t message_b;
-	status = receive_message(&message_b, &secret_b, &message_en, &secret_b);
-	message_b.data[message_b.len] = '\0';
-
-	printf("STATUS: %d\n", status);
-	printf("DECRYPT: %s\n", message_b.data);
-
- 	print_bin_hex(message_en.data, MESSAGE_LEN + 11);
-
-	free(message_en.data);	
-	free(message_b.data);
-	free(bin_bundle);
-	free_bundle_priv(&bundle_bin);
-	free_bundle(&bundle_a);	
-	free_bundle(&bundle_b);	
+	init(work_dir);
 
     return 0;
 }
