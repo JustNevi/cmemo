@@ -56,6 +56,8 @@ typedef struct {
 	unsigned char ***onetime_prekeys;
 	int *opks_number;
 	int **opks_ids;
+	char has_sig;
+	unsigned char *spk_sig;
 } bundle_pointer_t;
 
 typedef struct {
@@ -117,6 +119,10 @@ void bundle_to_bin(unsigned char **binp, int *len,
 		   + (len_int * opks_n)
 		   + len_int;
 
+	if (bp->has_sig == 1) {
+		*len += crypto_sign_BYTES;
+	}
+
 	*binp = malloc(sizeof(unsigned char *) * *len);
 	unsigned char *bin = *binp;
 
@@ -124,6 +130,15 @@ void bundle_to_bin(unsigned char **binp, int *len,
 	bin += len_i;
 	memcpy(bin, bp->signed_prekey, len_s);
 	bin += len_s;
+
+	if (bp->has_sig == 1) {
+		if (bp->spk_sig != NULL) {
+			memcpy(bin, bp->spk_sig, 
+		           crypto_sign_BYTES);
+		}
+		bin += crypto_sign_BYTES;
+	}
+
 	memcpy(bin, bp->opks_number, len_int);
 	bin += len_int;
 
@@ -149,6 +164,15 @@ void bin_to_bundle(bundle_pointer_t *bp, unsigned char *bin) {
 	bin += len_i;
 	memcpy(bp->signed_prekey, bin, len_s);
 	bin += len_s;
+
+	if (bp->has_sig == 1) {
+		if (bp->spk_sig != NULL) {
+			memcpy(bp->spk_sig, bin, 
+		           crypto_sign_BYTES);
+		}
+		bin += crypto_sign_BYTES;
+	}
+
 	memcpy(bp->opks_number, bin, len_int);
 	bin += len_int;
 
@@ -563,7 +587,9 @@ int receive_message(message_t *msg, secret_t *next_secret,
 }
 
 void make_bundle_pub_pointer(bundle_pointer_t *bp,
-							 bundle_public_t *b) {
+							 bundle_public_t *b,
+							 char has_sig,
+							 unsigned char *spk_sig) {
 	bp->len_i = sizeof(b->indentity);
 	bp->len_s = sizeof(b->signed_prekey);
 	bp->indentity = b->indentity;
@@ -571,10 +597,12 @@ void make_bundle_pub_pointer(bundle_pointer_t *bp,
 	bp->onetime_prekeys = &b->onetime_prekeys;
 	bp->opks_number = &b->opks_number;
 	bp->opks_ids = &b->opks_ids;
+	bp->has_sig = has_sig;
+	bp->spk_sig = spk_sig;
 }
 
 void make_bundle_priv_pointer(bundle_pointer_t *bp,
-							 bundle_private_t *b) {
+							  bundle_private_t *b) {
 	bp->len_i = sizeof(b->indentity);
 	bp->len_s = sizeof(b->signed_prekey);
 	bp->indentity = b->indentity;
@@ -582,6 +610,8 @@ void make_bundle_priv_pointer(bundle_pointer_t *bp,
 	bp->onetime_prekeys = &b->onetime_prekeys;
 	bp->opks_number = &b->opks_number;
 	bp->opks_ids = &b->opks_ids;
+	bp->has_sig = 0;
+	bp->spk_sig = NULL;
 }
 
 void free_bundle_pub(bundle_public_t *bundle) {
@@ -631,17 +661,16 @@ int get_full_dir_name(char *name, int len,
         return 1;
     }
 
-	char found;	
+	char found = 0;	
 	struct dirent *dp;
 	while ((dp = readdir(dirp)) != NULL) {
-		printf("%d", dp->d_type);
-        if (dp->d_type != 0 
+        if (dp->d_type != 4 
             || strcmp(dp->d_name, ".") == 0 
             || strcmp(dp->d_name, "..") == 0) {
            	continue; 
         }
-		if (strcmp(dp->d_name, 
-				   prefix) != 0) {
+
+		if (strcmp(dp->d_name, prefix) > 0) {
 			memcpy(name, dp->d_name, len - 1);
 			name[len] = '\0';
 			found = 1; 
@@ -651,6 +680,7 @@ int get_full_dir_name(char *name, int len,
 	closedir(dirp);
 
 	if (found == 0) {
+		fprintf(stderr, "Directory not found.\n");
 		return 1;
 	}
 
@@ -658,7 +688,7 @@ int get_full_dir_name(char *name, int len,
 }
 
 int read_bin(unsigned char *bin, int *len,
-			  FILE *f) {
+			 FILE *f) {
 	if (errno == ENOENT) {
 		return 1;
 	}
@@ -704,11 +734,38 @@ int write_secret(secret_t *s, FILE *f) {
 	return write_bin(bin, len, f);
 }
 
+int load_secret(secret_t *s,
+				char *dir, char *name) {
+	int status;
+	char path[MAX_PATH_LEN];	
+	make_path(path, dir, name);
+
+	FILE *f = fopen(path, "r");
+	status = read_secret(s, f);
+
+	fclose(f);
+	return status;
+}
+
+
+int store_secret(secret_t *s,
+				 char *dir, char *name) {
+	int status;
+	char path[MAX_PATH_LEN];	
+	make_path(path, dir, name);
+
+	FILE *f = fopen(path, "w");
+	status = write_secret(s, f);
+
+	fclose(f);
+	return status;
+}
+
 int read_bundle_pointer(bundle_pointer_t *bp,
 						FILE *f) {
 	int len;
 	unsigned char *bin = malloc(sizeof(unsigned char *)
-							    * sizeof(int));
+							    * 8000);
 	if (read_bin(bin, &len, f) != 0) {
 		free(bin);
 		return 1;
@@ -725,11 +782,17 @@ int write_bundle_pointer(bundle_pointer_t *bp,
 	unsigned char *bin;	
 	bundle_to_bin(&bin, &len, bp);
 
-	return write_bin(bin, len, f);
+	if (write_bin(bin, len, f) != 0) {
+		free(bin);
+		return 1;
+	}
+
+	free(bin);
+	return 0;
 }
 
 int load_bundle_pointer(bundle_pointer_t *bp, 
-						 char *dir, char *name) {
+						char *dir, char *name) {
 	int status;
 	char path[MAX_PATH_LEN];	
 	make_path(path, dir, name);
@@ -756,6 +819,18 @@ int store_bundle_pointer(bundle_pointer_t *bp,
 	return status;
 }
 
+int get_unit_dir(char *udir, char *dir, char *unit){
+	char name[UNIT_DIR_LEN];
+	if (get_full_dir_name(name, UNIT_DIR_LEN, 
+					   	  dir, unit) != 0) {
+		fprintf(stderr, "Unit not found.\n");
+		return 1;
+	}
+	make_path(udir, dir, name);
+
+	return 0;
+}
+
 int store_unit_bundle(bundle_pointer_t *bp,
 					  char *dir) {
 	int status;
@@ -776,6 +851,7 @@ int store_unit_bundle(bundle_pointer_t *bp,
 
 	char name[UNIT_DIR_LEN];
 	memcpy(name, fp, UNIT_DIR_LEN - 1);
+	free(fp);
 	name[UNIT_DIR_LEN] = '\0';
 
 	char path[MAX_PATH_LEN];
@@ -784,27 +860,14 @@ int store_unit_bundle(bundle_pointer_t *bp,
 
 	if (store_bundle_pointer(bp, path, 
 						     PUBLIC_BUNDLE_FILE) != 0) {
-		free(fp);
 		return 3;
 	}
 
-	free(fp);
 	return 0;
 }
 
-int load_unit_bundle(bundle_pointer_t *bp,
-					 char *dir, char *fp) {
-	char name[UNIT_DIR_LEN];
-	if (get_full_dir_name(name, UNIT_DIR_LEN, 
-					   	  dir, fp) != 0) {
-		fprintf(stderr, "Unit not found.\n");
-		return 1;
-	}
-
-	char path[MAX_PATH_LEN];
-	make_path(path, dir, name);
-
-	if (load_bundle_pointer(bp, path, 
+int load_unit_bundle(bundle_pointer_t *bp, char *dir) {
+	if (load_bundle_pointer(bp, dir, 
 						    PUBLIC_BUNDLE_FILE) != 0) {
 		return 1;
 	}
@@ -815,9 +878,16 @@ int load_unit_bundle(bundle_pointer_t *bp,
 int store_bundle(bundle_t *bundle, char *dir) {
 	int status;
 
+	unsigned char sig[crypto_sign_BYTES];
+	crypto_sign_detached(sig, NULL, 
+					     bundle->public.signed_prekey, 
+					     sizeof(bundle->public.signed_prekey), 
+					  	 bundle->private.indentity);
+
 	bundle_pointer_t pub_bl_p;
 	make_bundle_pub_pointer(&pub_bl_p, 
-						    &bundle->public);
+						    &bundle->public,
+						 	1, sig);
 	bundle_pointer_t priv_bl_p;
 	make_bundle_priv_pointer(&priv_bl_p, 
 						     &bundle->private);
@@ -826,6 +896,25 @@ int store_bundle(bundle_t *bundle, char *dir) {
 					     		  PUBLIC_BUNDLE_FILE);
 	status = store_bundle_pointer(&priv_bl_p, dir, 
 							      PRIVATE_BUNDLE_FILE);
+	return status;
+}
+
+int load_bundle(bundle_t *bundle, char *dir) {
+	int status;
+
+	bundle_pointer_t pub_bl_p;
+	make_bundle_pub_pointer(&pub_bl_p, 
+	 					    &bundle->public,
+	 					 	1, NULL);
+	bundle_pointer_t priv_bl_p;
+	make_bundle_priv_pointer(&priv_bl_p, 
+	 					     &bundle->private);
+
+	status = load_bundle_pointer(&pub_bl_p, dir, 
+	 				     		 PUBLIC_BUNDLE_FILE);
+	status = load_bundle_pointer(&priv_bl_p, dir, 
+							     PRIVATE_BUNDLE_FILE);
+
 	return status;
 }
 
@@ -844,7 +933,49 @@ int init(char *work_dir) {
 
 	status = store_bundle(&bundle, work_dir);
 
+	free_bundle(&bundle);	
 	return 0;
+}
+
+void request(char *work_dir, char *unit,
+			 unsigned char *ephemeral_pk, 
+			 char *nonce, int opk_id) {
+	bundle_t bl;
+	load_bundle(&bl, work_dir);
+
+	unsigned char *sig = malloc(sizeof(unsigned char *) * crypto_sign_BYTES);
+	bundle_public_t unit_bl;
+	bundle_pointer_t unit_bl_p;
+	make_bundle_pub_pointer(&unit_bl_p, 
+						    &unit_bl,
+						    1, sig);
+	char udir[MAX_PATH_LEN];		
+	make_path(udir, work_dir, UNITS_DIR);
+	get_unit_dir(udir, udir, unit);
+	load_unit_bundle(&unit_bl_p, udir);
+
+	unsigned char secret[SECRET_LEN];
+	request_secret_key(bl.private.indentity,
+					   &unit_bl,
+					   sig,
+					   opk_id,
+					   ephemeral_pk,
+					   secret);
+
+	secret_t srx;
+	secret_t stx;
+	split_secret_key(srx.key, stx.key,
+				  	 secret);
+
+	memcpy(srx.nonce, nonce, NONCE_LEN);
+	memcpy(stx.nonce, nonce, NONCE_LEN);
+
+	store_secret(&srx, udir, SECRET_RX_FILE);
+	store_secret(&stx, udir, SECRET_TX_FILE);
+
+	free(sig);
+	free_bundle_pub(&unit_bl);
+	free_bundle(&bl);
 }
 
 int main() {
@@ -859,7 +990,12 @@ int main() {
 	char work_dir[MAX_PATH_LEN];
 	get_work_dir(work_dir);
 
-	init(work_dir);
+	//init(work_dir);
+
+	unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
+	char *unit = "c4047";
+	char *nonce = "NONCENONCE__";
+	request(work_dir, unit, ephemeral_pk, nonce, 0);
 
     return 0;
 }
