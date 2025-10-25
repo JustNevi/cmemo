@@ -938,9 +938,9 @@ int init(char *work_dir) {
 	return 0;
 }
 
-void request(char *work_dir, char *unit,
-			 unsigned char *ephemeral_pk, 
-			 char *nonce, int opk_id) {
+void request(char *unit,unsigned char *ephemeral_pk, 
+			 char *nonce, int opk_id, 
+			 char *work_dir) {
 	bundle_t bl;
 	load_bundle(&bl, work_dir);
 
@@ -979,9 +979,9 @@ void request(char *work_dir, char *unit,
 	free_bundle(&bl);
 }
 
-void response(char *work_dir, char *unit,
-			  unsigned char *ephemeral_pk, 
-			  char *nonce, int opk_id) {
+void response(char *unit, unsigned char *ephemeral_pk, 
+			  char *nonce, int opk_id,
+			  char *work_dir) {
 	bundle_t bl;
 	load_bundle(&bl, work_dir);
 
@@ -1005,7 +1005,7 @@ void response(char *work_dir, char *unit,
 
 	secret_t srx;
 	secret_t stx;
-	split_secret_key(srx.key, stx.key,
+	split_secret_key(stx.key, srx.key,
 				  	 secret);
 
 	memcpy(srx.nonce, nonce, NONCE_LEN);
@@ -1016,6 +1016,34 @@ void response(char *work_dir, char *unit,
 
 	free_bundle_pub(&unit_bl);
 	free_bundle(&bl);
+}
+
+void send(message_t *enmsg, message_t *msg,
+		  char *unit, char *work_dir) {
+	char udir[MAX_PATH_LEN];		
+	make_path(udir, work_dir, UNITS_DIR);
+	get_unit_dir(udir, udir, unit);
+
+	secret_t s;	
+	load_secret(&s, udir, SECRET_TX_FILE);
+
+	send_message(enmsg, &s, msg, &s);
+
+	store_secret(&s, udir, SECRET_TX_FILE);
+}
+
+void receive(message_t *msg, message_t *enmsg,
+		  char *unit, char *work_dir) {
+	char udir[MAX_PATH_LEN];		
+	make_path(udir, work_dir, UNITS_DIR);
+	get_unit_dir(udir, udir, unit);
+
+	secret_t s;	
+	load_secret(&s, udir, SECRET_RX_FILE);
+
+	receive_message(msg, &s, enmsg, &s);
+
+	store_secret(&s, udir, SECRET_RX_FILE);
 }
 
 int main() {
@@ -1035,10 +1063,10 @@ int main() {
 	unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
 	char *unit_a = "c4047";
 	char *nonce = "NONCENONCE__";
-	request(work_dir, unit_a, ephemeral_pk, nonce, 0);
+	request(unit_a, ephemeral_pk, nonce, 0, work_dir);
 
 	char *unit_b = "7f5b";
-	response(work_dir, unit_b, ephemeral_pk, nonce, 0);
+	response(unit_b, ephemeral_pk, nonce, 0, work_dir);
 
     return 0;
 }
