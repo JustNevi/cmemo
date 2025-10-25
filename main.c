@@ -670,7 +670,8 @@ int get_full_dir_name(char *name, int len,
            	continue; 
         }
 
-		if (strcmp(dp->d_name, prefix) > 0) {
+		if (strncmp(prefix, dp->d_name, 
+			  		strlen(prefix)) == 0) {
 			memcpy(name, dp->d_name, len - 1);
 			name[len] = '\0';
 			found = 1; 
@@ -978,6 +979,45 @@ void request(char *work_dir, char *unit,
 	free_bundle(&bl);
 }
 
+void response(char *work_dir, char *unit,
+			  unsigned char *ephemeral_pk, 
+			  char *nonce, int opk_id) {
+	bundle_t bl;
+	load_bundle(&bl, work_dir);
+
+	bundle_public_t unit_bl;
+	bundle_pointer_t unit_bl_p;
+	make_bundle_pub_pointer(&unit_bl_p, 
+						    &unit_bl,
+						    1, NULL);
+
+	char udir[MAX_PATH_LEN];		
+	make_path(udir, work_dir, UNITS_DIR);
+	get_unit_dir(udir, udir, unit);
+	load_unit_bundle(&unit_bl_p, udir);
+
+	unsigned char secret[SECRET_LEN];
+	response_secret_key(&bl.private,
+					    opk_id,
+					    unit_bl.indentity,
+					    ephemeral_pk,
+					    secret);
+
+	secret_t srx;
+	secret_t stx;
+	split_secret_key(srx.key, stx.key,
+				  	 secret);
+
+	memcpy(srx.nonce, nonce, NONCE_LEN);
+	memcpy(stx.nonce, nonce, NONCE_LEN);
+
+	store_secret(&srx, udir, SECRET_RX_FILE);
+	store_secret(&stx, udir, SECRET_TX_FILE);
+
+	free_bundle_pub(&unit_bl);
+	free_bundle(&bl);
+}
+
 int main() {
     if (sodium_init() == -1) {
         fprintf(stderr, "Libsodium initialization failed\n");
@@ -993,9 +1033,12 @@ int main() {
 	//init(work_dir);
 
 	unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
-	char *unit = "c4047";
+	char *unit_a = "c4047";
 	char *nonce = "NONCENONCE__";
-	request(work_dir, unit, ephemeral_pk, nonce, 0);
+	request(work_dir, unit_a, ephemeral_pk, nonce, 0);
+
+	char *unit_b = "7f5b";
+	response(work_dir, unit_b, ephemeral_pk, nonce, 0);
 
     return 0;
 }
