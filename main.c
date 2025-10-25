@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <sodium.h>
 #include <string.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
 
@@ -15,7 +16,7 @@
 #define MESSAGE_KEY_LEN 32
 #define MESSAGE_LEN (AES_MESSAGE_LEN + MESSAGE_KEY_LEN + AES_MESSAGE_LEN)
 
-#define DIR ".cmemo"
+#define DIR_NAME ".cmemo"
 #define MAX_PATH_LEN 100
 #define UNITS_DIR "units"
 #define UNIT_DIR_LEN 32 
@@ -175,7 +176,7 @@ void secret_to_bin(unsigned char *bin, secret_t *sc) {
 
 void bin_to_secret(secret_t *sc, unsigned char *bin) {
 	memcpy(sc->key, bin, sizeof(sc->key));
-	memcpy(sc->nonce, bin +sizeof(sc->key), sizeof(sc->nonce));
+	memcpy(sc->nonce, bin + sizeof(sc->key), sizeof(sc->nonce));
 }
 
 int generate_sign_keypair(keypair_t *keypair) {
@@ -617,7 +618,43 @@ void make_path(char *path, char *base,
 
 void get_work_dir(char *dir) {
 	char *home = getenv("HOME");
-	make_path(dir, home, DIR);
+	make_path(dir, home, DIR_NAME);
+}
+
+
+int get_full_dir_name(char *name, int len, 
+					  char *dir, char *prefix) {
+	DIR *dirp = opendir(dir);
+
+	if (dirp == NULL) {
+		fprintf(stderr, "Can not open directory.\n");
+        return 1;
+    }
+
+	char found;	
+	struct dirent *dp;
+	while ((dp = readdir(dirp)) != NULL) {
+		printf("%d", dp->d_type);
+        if (dp->d_type != 0 
+            || strcmp(dp->d_name, ".") == 0 
+            || strcmp(dp->d_name, "..") == 0) {
+           	continue; 
+        }
+		if (strcmp(dp->d_name, 
+				   prefix) != 0) {
+			memcpy(name, dp->d_name, len - 1);
+			name[len] = '\0';
+			found = 1; 
+			break;
+		}
+    }
+	closedir(dirp);
+
+	if (found == 0) {
+		return 1;
+	}
+
+	return 0;
 }
 
 int read_bin(unsigned char *bin, int *len,
@@ -691,6 +728,19 @@ int write_bundle_pointer(bundle_pointer_t *bp,
 	return write_bin(bin, len, f);
 }
 
+int load_bundle_pointer(bundle_pointer_t *bp, 
+						 char *dir, char *name) {
+	int status;
+	char path[MAX_PATH_LEN];	
+	make_path(path, dir, name);
+
+	FILE *f = fopen(path, "r");
+	status = read_bundle_pointer(bp, f);
+
+	fclose(f);
+	return status;
+}
+
 int store_bundle_pointer(bundle_pointer_t *bp, 
 						 char *dir, char *name) {
 	int status;
@@ -710,10 +760,7 @@ int store_unit_bundle(bundle_pointer_t *bp,
 					  char *dir) {
 	int status;
 
-	char path[MAX_PATH_LEN];
-	make_path(path, dir, UNITS_DIR);
-
-	status = mkdir(path, S_IRWXU);
+	status = mkdir(dir, S_IRWXU);
 
 	if (status != 0 && errno != EEXIST) {
 		fprintf(stderr, "Unable to store unit bundle.\n");
@@ -727,17 +774,41 @@ int store_unit_bundle(bundle_pointer_t *bp,
 		return 2;
 	}
 
-	char path_u[MAX_PATH_LEN];
-	make_path(path_u, path, fp);
-	status = mkdir(path_u, S_IRWXU);
+	char name[UNIT_DIR_LEN];
+	memcpy(name, fp, UNIT_DIR_LEN - 1);
+	name[UNIT_DIR_LEN] = '\0';
 
-	if (store_bundle_pointer(bp, path_u, 
+	char path[MAX_PATH_LEN];
+	make_path(path, dir, name);
+	status = mkdir(path, S_IRWXU);
+
+	if (store_bundle_pointer(bp, path, 
 						     PUBLIC_BUNDLE_FILE) != 0) {
 		free(fp);
 		return 3;
 	}
 
 	free(fp);
+	return 0;
+}
+
+int load_unit_bundle(bundle_pointer_t *bp,
+					 char *dir, char *fp) {
+	char name[UNIT_DIR_LEN];
+	if (get_full_dir_name(name, UNIT_DIR_LEN, 
+					   	  dir, fp) != 0) {
+		fprintf(stderr, "Unit not found.\n");
+		return 1;
+	}
+
+	char path[MAX_PATH_LEN];
+	make_path(path, dir, name);
+
+	if (load_bundle_pointer(bp, path, 
+						    PUBLIC_BUNDLE_FILE) != 0) {
+		return 1;
+	}
+
 	return 0;
 }
 
