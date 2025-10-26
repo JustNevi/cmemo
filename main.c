@@ -25,7 +25,43 @@
 #define SECRET_RX_FILE "secret_rx.sk"
 #define SECRET_TX_FILE "secret_tx.sk"
 
+#define MAX_BUNDLE_LEN 4000
+#define MAX_STDIN_LEN 8000
+#define F_INIT_S "-i"
+#define F_INIT_L "--init"
+#define F_ADD_S "-a"
+#define F_ADD_L "--add"
+
+#define F_UNIT_S "-u"
+#define F_UNIT_L "--unit"
+
+#define F_REQUEST_S "-q"
+#define F_REQUEST_L "--request"
+#define F_RESPONSE_S "-p"
+#define F_RESPONSE_L "--response"
+
+#define F_RECV_S "-r"
+#define F_RECV_L "--recv"
+#define F_SEND_S "-s"
+#define F_SEND_L "--send"
+
 extern int errno;
+
+typedef struct {
+	char exists;
+	char arg_req;
+	char *arg;
+} farg_t;
+
+typedef struct {
+	farg_t init;
+	farg_t add;
+	farg_t unit;
+	farg_t request;
+	farg_t response;
+	farg_t send;
+	farg_t recv;
+} fargs_t;
 
 typedef struct {
 	unsigned char *public;
@@ -766,7 +802,7 @@ int read_bundle_pointer(bundle_pointer_t *bp,
 						FILE *f) {
 	int len;
 	unsigned char *bin = malloc(sizeof(unsigned char *)
-							    * 8000);
+							    * MAX_BUNDLE_LEN);
 	if (read_bin(bin, &len, f) != 0) {
 		free(bin);
 		return 1;
@@ -944,7 +980,8 @@ void request(char *unit,unsigned char *ephemeral_pk,
 	bundle_t bl;
 	load_bundle(&bl, work_dir);
 
-	unsigned char *sig = malloc(sizeof(unsigned char *) * crypto_sign_BYTES);
+	unsigned char *sig = malloc(sizeof(unsigned char *) 
+							    * crypto_sign_BYTES);
 	bundle_public_t unit_bl;
 	bundle_pointer_t unit_bl_p;
 	make_bundle_pub_pointer(&unit_bl_p, 
@@ -1046,27 +1083,135 @@ void receive(message_t *msg, message_t *enmsg,
 	store_secret(&s, udir, SECRET_RX_FILE);
 }
 
-int main() {
+void load_args(fargs_t *fargs, char *argv[], int c) {
+	fargs->init.exists = 0;
+	fargs->init.arg_req = 0;
+	fargs->add.exists = 0;
+	fargs->add.arg_req = 0;
+
+	fargs->unit.exists = 0;
+	fargs->unit.arg_req = 1;
+
+	fargs->request.exists = 0;
+	fargs->request.arg_req = 1;
+	fargs->response.exists = 0;
+	fargs->response.arg_req = 1;
+
+	fargs->recv.exists = 0;
+	fargs->recv.arg_req = 0;
+	fargs->send.exists = 0;
+	fargs->send.arg_req = 0;
+
+	int f_i = 0;
+	int arg_i = 0;
+	char **args[5];
+	for (int i = 1; i < c; i++) {
+		char *arg = argv[i];
+
+		if (strcmp(arg, F_INIT_S) == 0
+			|| strcmp(arg, F_INIT_L) == 0) {
+			fargs->init.exists = 1;
+		} else if (strcmp(arg, F_ADD_S) == 0
+				   || strcmp(arg, F_ADD_L) == 0) {
+			fargs->add.exists = 1;
+		} else if (strcmp(arg, F_UNIT_S) == 0
+				   || strcmp(arg, F_UNIT_L) == 0) {
+			fargs->unit.exists = 1;
+			args[f_i] = &fargs->unit.arg;
+			f_i++;
+		} else if (strcmp(arg, F_REQUEST_S) == 0
+				   || strcmp(arg, F_REQUEST_L) == 0) {
+			fargs->request.exists = 1;
+			args[f_i] = &fargs->request.arg;
+			f_i++;
+		} else if (strcmp(arg, F_RESPONSE_S) == 0
+				   || strcmp(arg, F_RESPONSE_L) == 0) {
+			fargs->response.exists = 1;
+			args[f_i] = &fargs->response.arg;
+			f_i++;
+		} else if (strcmp(arg, F_RECV_S) == 0
+				   || strcmp(arg, F_RECV_L) == 0) {
+			fargs->recv.exists = 1;
+		} else if (strcmp(arg, F_SEND_S) == 0
+				   || strcmp(arg, F_SEND_S) == 0) {
+			fargs->send.exists = 1;
+		} else {
+			*args[arg_i] = arg;
+			arg_i++;
+		}
+	}
+}
+
+int main(int argc, char *argv[]) {
     if (sodium_init() == -1) {
         fprintf(stderr, "Libsodium initialization failed\n");
         return 1;
     }
-	 if (crypto_aead_aes256gcm_is_available() == 0) {
+	if (crypto_aead_aes256gcm_is_available() == 0) {
 		abort();
 	}
+
+	fargs_t fargs;
+	load_args(&fargs, argv, argc);
 
 	char work_dir[MAX_PATH_LEN];
 	get_work_dir(work_dir);
 
-	//init(work_dir);
+	if (fargs.init.exists == 1) {
+		init(work_dir);
+	} else if (fargs.add.exists == 1) {
+		unsigned char *sig = malloc(sizeof(unsigned char *)
+									* crypto_sign_BYTES);
+		bundle_public_t bl;
+		bundle_pointer_t bl_p;
+		make_bundle_pub_pointer(&bl_p,
+								&bl,
+								1, sig);
+		int len = 0;
+		unsigned char *bin = malloc(sizeof(unsigned char)
+			   	  					* MAX_BUNDLE_LEN);
+		read_bin(bin, &len, stdin);
 
-	unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
-	char *unit_a = "c4047";
-	char *nonce = "NONCENONCE__";
-	request(unit_a, ephemeral_pk, nonce, 0, work_dir);
+		bin_to_bundle(&bl_p, bin);
 
-	char *unit_b = "7f5b";
-	response(unit_b, ephemeral_pk, nonce, 0, work_dir);
+		char dir[MAX_PATH_LEN];	
+		make_path(dir, work_dir, UNITS_DIR);
+		store_unit_bundle(&bl_p, dir);
+
+		free(sig);
+		free_bundle_pub(&bl);
+		free(bin);
+	} else if (fargs.request.exists == 1
+			   && fargs.unit.exists == 1) {
+		int opk_id = 0;
+       	char nonce[NONCE_LEN + 1];
+
+		char *arg = fargs.request.arg;
+		opk_id = (int)strtol(arg + NONCE_LEN + 1, NULL, 10);
+		memcpy(nonce, arg, NONCE_LEN);
+		nonce[NONCE_LEN] = '\0';
+
+		unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
+
+    	request(fargs.unit.arg, ephemeral_pk, nonce, opk_id, work_dir);
+
+		fprintf(stdout, "%s", ephemeral_pk);
+	} else if (fargs.response.exists == 1
+			   && fargs.unit.exists == 1) {
+		int opk_id = 0;
+       	char nonce[NONCE_LEN + 1];
+
+		char *arg = fargs.response.arg;
+		opk_id = (int)strtol(arg + NONCE_LEN + 1, NULL, 10);
+		memcpy(nonce, arg, NONCE_LEN);
+		nonce[NONCE_LEN] = '\0';
+
+		int len;
+		unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
+		read_bin(ephemeral_pk, &len, stdin);
+
+        response(fargs.unit.arg, ephemeral_pk, nonce, opk_id, work_dir);
+	}
 
     return 0;
 }
