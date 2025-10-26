@@ -1284,6 +1284,7 @@ int main(int argc, char *argv[]) {
 			        fargs.unit.arg, work_dir) != 0) {
 			fprintf(stderr, "Can not decrypt message.");
 		} else {
+			msg.data[msg.len] = '\0';
 			fprintf(stdout, "%s", msg.data);
 		}
 
