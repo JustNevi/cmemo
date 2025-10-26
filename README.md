@@ -173,9 +173,23 @@ cmemo -r -u e2e5a35dcd2 < /tmp/cmemo/enmsg
 # Output: Hello, Bob
 ```
 
+Bob:
+
+```
+echo "Hi, Alice" | cmemo -s -u e2e5a35dcd2 -e
+# Output: f5fcde767b83...
+```
+
+Alice:
+
+```
+echo "f5fcde767b83..." cmemo -r -u 0bfb608d2 -e
+# Output: Hi, Alice
+```
+
 ## Main idea
 
-The main idea of ​​the project is to enable sending end-to-end encrypted messages regardless of the method of transmission. You can easily use it in unencrypted messengers, game chats, radio, and so on. That is, you can write various extensions that can integrate into the chat, track history for any method of communication.
+The main idea of the project is to enable sending end-to-end encrypted messages regardless of the method of transmission. You can easily use it in unencrypted messengers, game chats, radio, and so on. That is, you can write various extensions that can integrate into the chat, track history for any method of communication.
 
 ## TODO
 
@@ -184,6 +198,7 @@ The main idea of ​​the project is to enable sending end-to-end encrypted mes
 - [ ] Binding a nickname to unit.
 - [ ] Export public bundle.
 - [ ] Size-independent initial key.
+- [ ] Add more errors.
 
 ## Contribution
 
