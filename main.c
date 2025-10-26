@@ -230,13 +230,13 @@ void bin_to_bundle(bundle_pointer_t *bp, unsigned char *bin) {
 }
 
 void secret_to_bin(unsigned char *bin, secret_t *sc) {
-	memcpy(bin, sc->key, sizeof(sc->key));
 	memcpy(bin, sc->nonce, sizeof(sc->nonce));
+	memcpy(bin + sizeof(sc->nonce), sc->key, sizeof(sc->key));
 }
 
 void bin_to_secret(secret_t *sc, unsigned char *bin) {
-	memcpy(sc->key, bin, sizeof(sc->key));
-	memcpy(sc->nonce, bin + sizeof(sc->key), sizeof(sc->nonce));
+	memcpy(sc->nonce, bin, sizeof(sc->nonce));
+	memcpy(sc->key, bin + sizeof(sc->nonce), sizeof(sc->key));
 }
 
 int generate_sign_keypair(keypair_t *keypair) {
@@ -752,8 +752,8 @@ int write_bin(unsigned char *bin, int len,
 
 
 int read_secret(secret_t *s, FILE *f) {
-	int len = SECRET_RTX_LEN + NONCE_LEN;	
-	unsigned char bin[len];	
+	int len = 0;	
+	unsigned char bin[NONCE_LEN + SECRET_RTX_LEN];	
 
 	if (read_bin(bin, &len, f) != 0) {
 		return 1;
@@ -764,7 +764,7 @@ int read_secret(secret_t *s, FILE *f) {
 }
 
 int write_secret(secret_t *s, FILE *f) {
-	int len = SECRET_RTX_LEN + NONCE_LEN;	
+	int len = NONCE_LEN + SECRET_RTX_LEN;	
 	unsigned char bin[len];	
 	secret_to_bin(bin, s);
 
@@ -1069,8 +1069,9 @@ void send(message_t *enmsg, message_t *msg,
 	store_secret(&s, udir, SECRET_TX_FILE);
 }
 
-void receive(message_t *msg, message_t *enmsg,
+int receive(message_t *msg, message_t *enmsg,
 		  char *unit, char *work_dir) {
+	int status = 0;
 	char udir[MAX_PATH_LEN];		
 	make_path(udir, work_dir, UNITS_DIR);
 	get_unit_dir(udir, udir, unit);
@@ -1078,9 +1079,11 @@ void receive(message_t *msg, message_t *enmsg,
 	secret_t s;	
 	load_secret(&s, udir, SECRET_RX_FILE);
 
-	receive_message(msg, &s, enmsg, &s);
+	status = receive_message(msg, &s, enmsg, &s);
 
 	store_secret(&s, udir, SECRET_RX_FILE);
+
+	return status;
 }
 
 void load_args(fargs_t *fargs, char *argv[], int c) {
@@ -1206,11 +1209,50 @@ int main(int argc, char *argv[]) {
 		memcpy(nonce, arg, NONCE_LEN);
 		nonce[NONCE_LEN] = '\0';
 
-		int len;
+		int len = 0;
 		unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
 		read_bin(ephemeral_pk, &len, stdin);
 
         response(fargs.unit.arg, ephemeral_pk, nonce, opk_id, work_dir);
+	} else if (fargs.recv.exists == 1
+			   && fargs.unit.exists == 1) {
+		int len = 0;
+		unsigned char *msgb = malloc(sizeof(unsigned char)
+			   	  					* MAX_STDIN_LEN);
+		read_bin(msgb, &len, stdin);
+
+		message_t enmsg = {
+			.data = msgb,
+			.len = len, 
+		};
+		message_t msg;
+		if (receive(&msg, &enmsg, 
+			        fargs.unit.arg, work_dir) != 0) {
+			fprintf(stderr, "Can not decrypt message.");
+		} else {
+			fprintf(stdout, "%s", msg.data);
+		}
+
+		free(msgb);
+		free(msg.data);
+	} else if (fargs.send.exists == 1
+			   && fargs.unit.exists == 1) {
+		int len = 0;
+		unsigned char *msgb = malloc(sizeof(unsigned char)
+			   	  					* MAX_STDIN_LEN);
+		read_bin(msgb, &len, stdin);
+
+		message_t msg = {
+			.data = msgb,
+			.len = len, 
+		};
+		message_t enmsg;
+		send(&enmsg, &msg, fargs.unit.arg, work_dir);
+
+		fprintf(stdout, "%s", enmsg.data);
+
+		free(msgb);
+		free(enmsg.data);
 	}
 
     return 0;
