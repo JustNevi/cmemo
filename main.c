@@ -1259,11 +1259,9 @@ int main(int argc, char *argv[]) {
 		read_bin(ephemeral_pk, &len, stdin);
 		ephemeral_pk[len - 1] = '\0';
 
-		// if (fargs.encode.exists == 1) {
-		// 	hex_to_bin(&ephemeral_pk, &len);
-		// }
-
-		printf("%s", ephemeral_pk);
+		if (fargs.encode.exists == 1) {
+			hex_to_bin(&ephemeral_pk, &len);
+		}
 
         response(fargs.unit.arg, ephemeral_pk, nonce, opk_id, work_dir);
 	} else if (fargs.recv.exists == 1
