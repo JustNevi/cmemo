@@ -4,12 +4,12 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99
 LDFLAGS = -lsodium
 
-build: main.c
-	$(CC) $(CFLAGS) $< -o main.o $(LDFLAGS)
+build: cmemo.c
+	$(CC) $(CFLAGS) $< -o cmemo $(LDFLAGS)
 
 
 run: build;
-	./main.o
+	./cmemo
 
 run_test: build;
-	valgrind ./main.o
+	valgrind ./cmemo
