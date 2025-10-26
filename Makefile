@@ -5,11 +5,11 @@ CFLAGS = -Wall -Wextra -std=c99
 LDFLAGS = -lsodium
 
 build: cmemo.c
-	$(CC) $(CFLAGS) $< -o cmemo $(LDFLAGS)
+	$(CC) $(CFLAGS) $< -o cmemo.o $(LDFLAGS)
 
 
 run: build;
-	./cmemo
+	./cmemo.o
 
 run_test: build;
-	valgrind ./cmemo
+	valgrind ./cmemo.o
