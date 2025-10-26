@@ -8,6 +8,10 @@ Get to know the main idea of the project: [Main idea](#main-idea)
 
 - _Unit_ - user, friend, one side of the conversation.
 
+## Dependencies
+
+- libsodium 
+
 ## Features
 
 ### Initialization
