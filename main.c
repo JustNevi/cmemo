@@ -31,6 +31,8 @@
 #define F_INIT_L "--init"
 #define F_ADD_S "-a"
 #define F_ADD_L "--add"
+#define F_ENCODE_S "-e"
+#define F_ENCODE_L "--encoding"
 
 #define F_UNIT_S "-u"
 #define F_UNIT_L "--unit"
@@ -56,6 +58,7 @@ typedef struct {
 typedef struct {
 	farg_t init;
 	farg_t add;
+	farg_t encode;
 	farg_t unit;
 	farg_t request;
 	farg_t response;
@@ -124,6 +127,34 @@ void print_bin_hex(unsigned char *bin, int len) {
 
 	printf("%s\n", hex);
 	free(hex);
+}
+
+void bin_to_hex(unsigned char **bin, int *len) {
+	const size_t hex_maxlen = (*len * 2) + 1;
+	unsigned char *hex = malloc(sizeof(unsigned char) 
+							    * hex_maxlen);
+	sodium_bin2hex((char *)hex, hex_maxlen, 
+				   *bin, *len);
+	free(*bin);
+	*bin = hex;
+	*len = strlen((const char *)(hex));
+}
+
+int hex_to_bin(unsigned char **hex, int *len) {
+	int status = 0;
+	const size_t bin_maxlen = (*len / 2) + 1;
+	unsigned char *bin = malloc(sizeof(unsigned char) 
+							    * bin_maxlen);
+	size_t bin_len;
+	status = sodium_hex2bin(bin, bin_maxlen, 
+						    (char *)(*hex), *len,
+				   			NULL, &bin_len, 
+						 	NULL );
+	free(*hex);
+	*hex = bin;
+	*len = (int)bin_len;
+
+	return status;
 }
 
 int bin_fingerprint(char **hex,
@@ -730,6 +761,7 @@ int read_bin(unsigned char *bin, int *len,
 		return 1;
 	}
 
+	*len = 0;
 	int byte;
 	while ((byte = fgetc(f)) != EOF) {
 		unsigned char c = (unsigned char)byte;
@@ -1091,6 +1123,8 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 	fargs->init.arg_req = 0;
 	fargs->add.exists = 0;
 	fargs->add.arg_req = 0;
+	fargs->encode.exists = 0;
+	fargs->encode.arg_req = 0;
 
 	fargs->unit.exists = 0;
 	fargs->unit.arg_req = 1;
@@ -1117,6 +1151,9 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 		} else if (strcmp(arg, F_ADD_S) == 0
 				   || strcmp(arg, F_ADD_L) == 0) {
 			fargs->add.exists = 1;
+		} else if (strcmp(arg, F_ENCODE_S) == 0
+				   || strcmp(arg, F_ENCODE_L) == 0) {
+			fargs->encode.exists = 1;
 		} else if (strcmp(arg, F_UNIT_S) == 0
 				   || strcmp(arg, F_UNIT_L) == 0) {
 			fargs->unit.exists = 1;
@@ -1194,11 +1231,18 @@ int main(int argc, char *argv[]) {
 		memcpy(nonce, arg, NONCE_LEN);
 		nonce[NONCE_LEN] = '\0';
 
-		unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
-
+		int len = (int)crypto_box_PUBLICKEYBYTES;
+		unsigned char *ephemeral_pk;
+		ephemeral_pk = malloc(sizeof(unsigned char) 
+							  * len);
     	request(fargs.unit.arg, ephemeral_pk, nonce, opk_id, work_dir);
 
+		if (fargs.encode.exists == 1) {
+			bin_to_hex(&ephemeral_pk, &len);
+		}
 		fprintf(stdout, "%s", ephemeral_pk);
+
+		free(ephemeral_pk);
 	} else if (fargs.response.exists == 1
 			   && fargs.unit.exists == 1) {
 		int opk_id = 0;
@@ -1209,9 +1253,17 @@ int main(int argc, char *argv[]) {
 		memcpy(nonce, arg, NONCE_LEN);
 		nonce[NONCE_LEN] = '\0';
 
-		int len = 0;
-		unsigned char ephemeral_pk[crypto_box_PUBLICKEYBYTES];
+		int len = (int)crypto_box_PUBLICKEYBYTES;
+		unsigned char *ephemeral_pk = malloc(sizeof(unsigned char) 
+							          * len);
 		read_bin(ephemeral_pk, &len, stdin);
+		ephemeral_pk[len - 1] = '\0';
+
+		// if (fargs.encode.exists == 1) {
+		// 	hex_to_bin(&ephemeral_pk, &len);
+		// }
+
+		printf("%s", ephemeral_pk);
 
         response(fargs.unit.arg, ephemeral_pk, nonce, opk_id, work_dir);
 	} else if (fargs.recv.exists == 1
@@ -1220,6 +1272,10 @@ int main(int argc, char *argv[]) {
 		unsigned char *msgb = malloc(sizeof(unsigned char)
 			   	  					* MAX_STDIN_LEN);
 		read_bin(msgb, &len, stdin);
+
+		if (fargs.encode.exists == 1) {
+			hex_to_bin(&msgb, &len);
+		}
 
 		message_t enmsg = {
 			.data = msgb,
@@ -1249,6 +1305,10 @@ int main(int argc, char *argv[]) {
 		message_t enmsg;
 		send(&enmsg, &msg, fargs.unit.arg, work_dir);
 
+		if (fargs.encode.exists == 1) {
+			int hl = enmsg.len;
+			bin_to_hex(&enmsg.data, &hl);
+		}
 		fprintf(stdout, "%s", enmsg.data);
 
 		free(msgb);
