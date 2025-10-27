@@ -146,14 +146,14 @@ cmemo -a < /tmp/cmemo/alice/.cmemo/public.bl
 #### Request/Response
 
 ```
-Key: ExamleKey_00
+Key: ExampleKey00
 ID: 69
 ```
 
 Alice:
 
 ```
-cmemo -q ExamleKey_00:69 -u 0bfb608d2 -e > /tmp/cmemo/ep.key
+cmemo -q ExampleKey00:69 -u 0bfb608d2 -e > /tmp/cmemo/ep.key
 ```
 
 Bob:
