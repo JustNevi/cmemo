@@ -22,6 +22,16 @@ Flags: `--init` | `-i`.
 cmemo -i
 ```
 
+### Export
+
+Export yours public bundle to share them.
+
+Flags: `--init` | `-i`.
+
+```
+cmemo -x > pub.bl 
+```
+
 ### Add unit
 
 Flags: `--add` | `-a`.
@@ -200,7 +210,7 @@ The main idea of the project is to enable sending end-to-end encrypted messages 
 - [ ] Add base64 encoding.
 - [ ] Clean code.
 - [ ] Binding a nickname to unit.
-- [ ] Export public bundle.
+- [x] Export public bundle.
 - [ ] Size-independent initial key.
 - [ ] Add more errors messages.
 
