@@ -26,7 +26,7 @@ cmemo -i
 
 Export yours public bundle to share them.
 
-Flags: `--init` | `-i`.
+Flags: `--export` | `-x`.
 
 ```
 cmemo -x > pub.bl 
