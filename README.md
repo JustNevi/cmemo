@@ -91,12 +91,12 @@ Used to indicate that you are receiving or sending encrypted data. Currently use
 Flags: `--encode` | `-e`.
 
 ```
-cat "Hello, how are you?" | cmemo -s -u 48dabed -e
+echo "Hello, how are you?" | cmemo -s -u 48dabed -e
 # Output: e831361abb5b73d...
 ```
 
 ```
-cat "e831361abb5b73d..." cmemo -r -u 6860b33 -e
+echo "e831361abb5b73d..." cmemo -r -u 6860b33 -e
 # Output: Hello, how are you?
 ```
 
@@ -111,7 +111,7 @@ mkdir -p /tmp/cmemo/alice
 mkdir -p /tmp/cmemo/bob
 ```
 
-In two shells, we set the `HOME` for `Alias` ​​and `Bob`.
+In two shells, we set the `HOME` for `Alias` and `Bob`.
 
 ```
 export HOME="/tmp/cmemo/alice"
@@ -202,7 +202,7 @@ The main idea of the project is to enable sending end-to-end encrypted messages 
 - [ ] Binding a nickname to unit.
 - [ ] Export public bundle.
 - [ ] Size-independent initial key.
-- [ ] Add more errors.
+- [ ] Add more errors messages.
 
 ## Contribution
 
