@@ -31,6 +31,8 @@
 #define F_INIT_L "--init"
 #define F_ADD_S "-a"
 #define F_ADD_L "--add"
+#define F_EXPORT_S "-x"
+#define F_EXPORT_L "--export"
 #define F_ENCODE_S "-e"
 #define F_ENCODE_L "--encoding"
 
@@ -58,6 +60,7 @@ typedef struct {
 typedef struct {
 	farg_t init;
 	farg_t add;
+	farg_t export;
 	farg_t encode;
 	farg_t unit;
 	farg_t request;
@@ -1123,6 +1126,8 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 	fargs->init.arg_req = 0;
 	fargs->add.exists = 0;
 	fargs->add.arg_req = 0;
+	fargs->export.exists = 0;
+	fargs->export.arg_req = 0;
 	fargs->encode.exists = 0;
 	fargs->encode.arg_req = 0;
 
@@ -1151,6 +1156,9 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 		} else if (strcmp(arg, F_ADD_S) == 0
 				   || strcmp(arg, F_ADD_L) == 0) {
 			fargs->add.exists = 1;
+		} else if (strcmp(arg, F_EXPORT_S) == 0
+				   || strcmp(arg, F_EXPORT_L) == 0) {
+			fargs->export.exists = 1;
 		} else if (strcmp(arg, F_ENCODE_S) == 0
 				   || strcmp(arg, F_ENCODE_L) == 0) {
 			fargs->encode.exists = 1;
@@ -1199,6 +1207,20 @@ int main(int argc, char *argv[]) {
 
 	if (fargs.init.exists == 1) {
 		init(work_dir);
+	} else if (fargs.export.exists == 1) {
+		char path[MAX_PATH_LEN];	
+		make_path(path, work_dir, PUBLIC_BUNDLE_FILE);
+		FILE *f = fopen(path, "r");
+
+		int len = 0;
+		unsigned char *bin = malloc(sizeof(unsigned char)
+			   	  					* MAX_BUNDLE_LEN);
+		read_bin(bin, &len, f);
+
+		if (fargs.encode.exists == 1) {
+			bin_to_hex(&bin, &len);
+		}
+		fprintf(stdout, "%s", bin);
 	} else if (fargs.add.exists == 1) {
 		unsigned char *sig = malloc(sizeof(unsigned char *)
 									* crypto_sign_BYTES);
@@ -1208,9 +1230,16 @@ int main(int argc, char *argv[]) {
 								&bl,
 								1, sig);
 		int len = 0;
+		int mlen = MAX_BUNDLE_LEN;
+		if (fargs.encode.exists == 1) {
+			mlen *= 2;
+		}
 		unsigned char *bin = malloc(sizeof(unsigned char)
-			   	  					* MAX_BUNDLE_LEN);
+			   	  					* mlen);
 		read_bin(bin, &len, stdin);
+		if (fargs.encode.exists == 1) {
+			hex_to_bin(&bin, &len);
+		}
 
 		bin_to_bundle(&bl_p, bin);
 
