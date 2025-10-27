@@ -169,7 +169,7 @@ cmemo -q ExampleKey00:69 -u 0bfb608d2 -e > /tmp/cmemo/ep.key
 Bob:
 
 ```
-cmemo -p ExamleKey_00:69 -u e2e5a35dcd2 -e < /tmp/cmemo/ep.key
+cmemo -p ExampleKey00:69 -u e2e5a35dcd2 -e < /tmp/cmemo/ep.key
 ```
 
 #### Send/Receive
