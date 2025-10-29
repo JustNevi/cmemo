@@ -160,6 +160,40 @@ int hex_to_bin(unsigned char **hex, int *len) {
 	return status;
 }
 
+void bin_to_base64(unsigned char **bin, int *len) {
+	const int variat = sodium_base64_VARIANT_URLSAFE;
+	const size_t b64_maxlen = sodium_base64_encoded_len(*len, 
+														 variat);
+	unsigned char *b64 = malloc(sizeof(unsigned char) 
+							    * b64_maxlen);
+	
+	sodium_bin2base64((char *)b64, b64_maxlen,
+                      *bin, *len,
+                      variat);
+	free(*bin);
+	*bin = b64;
+	*len = strlen((const char *)(b64));
+}
+
+int base64_to_bin(unsigned char **b64, int *len) {
+	int status = 0;
+	const int variat = sodium_base64_VARIANT_URLSAFE;
+	const size_t bin_maxlen = (*len / 4 * 3) + 1;
+
+	unsigned char *bin = malloc(sizeof(unsigned char) 
+							    * bin_maxlen);
+	size_t bin_len;
+	status = sodium_base642bin(bin, bin_maxlen, 
+							   (char *)(*b64), *len,
+								NULL, &bin_len, 
+								NULL, variat );
+	free(*b64);
+	*b64 = bin;
+	*len = (int)bin_len;
+
+	return status;
+}
+
 int bin_fingerprint(char **hex,
 					 unsigned char *bin, int blen) {
 	int hashlen = crypto_generichash_BYTES;
@@ -1218,7 +1252,7 @@ int main(int argc, char *argv[]) {
 		read_bin(bin, &len, f);
 
 		if (fargs.encode.exists == 1) {
-			bin_to_hex(&bin, &len);
+			bin_to_base64(&bin, &len);
 		}
 		fprintf(stdout, "%s", bin);
 	} else if (fargs.add.exists == 1) {
@@ -1238,7 +1272,7 @@ int main(int argc, char *argv[]) {
 			   	  					* mlen);
 		read_bin(bin, &len, stdin);
 		if (fargs.encode.exists == 1) {
-			hex_to_bin(&bin, &len);
+			base64_to_bin(&bin, &len);
 		}
 
 		bin_to_bundle(&bl_p, bin);
@@ -1267,7 +1301,7 @@ int main(int argc, char *argv[]) {
     	request(fargs.unit.arg, ephemeral_pk, nonce, opk_id, work_dir);
 
 		if (fargs.encode.exists == 1) {
-			bin_to_hex(&ephemeral_pk, &len);
+			bin_to_base64(&ephemeral_pk, &len);
 		}
 		fprintf(stdout, "%s", ephemeral_pk);
 
@@ -1289,7 +1323,7 @@ int main(int argc, char *argv[]) {
 		ephemeral_pk[len - 1] = '\0';
 
 		if (fargs.encode.exists == 1) {
-			hex_to_bin(&ephemeral_pk, &len);
+			base64_to_bin(&ephemeral_pk, &len);
 		}
 
         response(fargs.unit.arg, ephemeral_pk, nonce, opk_id, work_dir);
@@ -1301,7 +1335,7 @@ int main(int argc, char *argv[]) {
 		read_bin(msgb, &len, stdin);
 
 		if (fargs.encode.exists == 1) {
-			hex_to_bin(&msgb, &len);
+			base64_to_bin(&msgb, &len);
 		}
 
 		message_t enmsg = {
@@ -1335,7 +1369,7 @@ int main(int argc, char *argv[]) {
 
 		if (fargs.encode.exists == 1) {
 			int hl = enmsg.len;
-			bin_to_hex(&enmsg.data, &hl);
+			bin_to_base64(&enmsg.data, &hl);
 		}
 		fprintf(stdout, "%s", enmsg.data);
 
