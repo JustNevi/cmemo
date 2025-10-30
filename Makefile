@@ -1,15 +1,21 @@
-.PHONY: build run run_test
-
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99
 LDFLAGS = -lsodium
 
-build: cmemo.c
-	$(CC) $(CFLAGS) $< -o cmemo.o $(LDFLAGS)
+EXE = cmemo 
 
+SRCS = cmemo.c
+OBJS = $(SRCS:.c=.o)
 
-run: build;
-	./cmemo.o
+all: $(EXE)
 
-run_test: build;
-	valgrind ./cmemo.o
+$(EXE): $(OBJS)
+	$(CC) $(OBJS) $(LDFLAGS) -o $@
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -f $(OBJS) $(EXE)
+
+.PHONY: all clean
