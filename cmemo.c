@@ -1155,6 +1155,18 @@ int receive(message_t *msg, message_t *enmsg,
 	return status;
 }
 
+int arg_is(char *arg, char **funcs) {
+	int i = 0;
+	char *func;
+	while ((func = funcs[i]) != NULL) {
+		if (strcmp(arg, func) == 0) {
+			return 1;
+		}
+		i++;
+	}
+	return 0;
+}
+
 void load_args(fargs_t *fargs, char *argv[], int c) {
 	fargs->init.exists = 0;
 	fargs->init.arg_req = 0;
@@ -1184,38 +1196,66 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 	for (int i = 1; i < c; i++) {
 		char *arg = argv[i];
 
-		if (strcmp(arg, F_INIT_S) == 0
-			|| strcmp(arg, F_INIT_L) == 0) {
+		char *init[] = {
+			F_INIT_S, 	F_INIT_L,
+			NULL
+		};
+		char *add[]	 = {
+			F_ADD_S, 	F_ADD_L,
+			NULL
+		};
+		char *export[] 	= {
+			F_EXPORT_S,	F_EXPORT_L,
+			NULL
+		};
+		char *encode[] 	= {
+			F_ENCODE_S, F_ENCODE_L,
+			NULL
+		};
+		char *unit[] 	= {
+			F_UNIT_S,	F_UNIT_L, 
+			NULL
+		};
+		char *request[]	= {
+			F_REQUEST_S,F_REQUEST_L,
+			NULL
+		};
+		char *response[]= {
+			F_RESPONSE_S,F_RESPONSE_L,
+			NULL
+		};
+		char *receive[] = {
+			F_RECV_S,	F_RECV_L,
+			NULL
+		};
+		char *send[]	= {
+			F_SEND_S, 	F_SEND_S,
+			NULL
+		};
+
+		if (arg_is(arg, init)) {
 			fargs->init.exists = 1;
-		} else if (strcmp(arg, F_ADD_S) == 0
-				   || strcmp(arg, F_ADD_L) == 0) {
+		} else if (arg_is(arg, add)) {
 			fargs->add.exists = 1;
-		} else if (strcmp(arg, F_EXPORT_S) == 0
-				   || strcmp(arg, F_EXPORT_L) == 0) {
+		} else if (arg_is(arg, export)) {
 			fargs->export.exists = 1;
-		} else if (strcmp(arg, F_ENCODE_S) == 0
-				   || strcmp(arg, F_ENCODE_L) == 0) {
+		} else if (arg_is(arg, encode)) {
 			fargs->encode.exists = 1;
-		} else if (strcmp(arg, F_UNIT_S) == 0
-				   || strcmp(arg, F_UNIT_L) == 0) {
+		} else if (arg_is(arg, unit)) {
 			fargs->unit.exists = 1;
 			args[f_i] = &fargs->unit.arg;
 			f_i++;
-		} else if (strcmp(arg, F_REQUEST_S) == 0
-				   || strcmp(arg, F_REQUEST_L) == 0) {
+		} else if (arg_is(arg, request)) {
 			fargs->request.exists = 1;
 			args[f_i] = &fargs->request.arg;
 			f_i++;
-		} else if (strcmp(arg, F_RESPONSE_S) == 0
-				   || strcmp(arg, F_RESPONSE_L) == 0) {
+		} else if (arg_is(arg, response)) {
 			fargs->response.exists = 1;
 			args[f_i] = &fargs->response.arg;
 			f_i++;
-		} else if (strcmp(arg, F_RECV_S) == 0
-				   || strcmp(arg, F_RECV_L) == 0) {
+		} else if (arg_is(arg, receive)) {
 			fargs->recv.exists = 1;
-		} else if (strcmp(arg, F_SEND_S) == 0
-				   || strcmp(arg, F_SEND_S) == 0) {
+		} else if (arg_is(arg, send)) {
 			fargs->send.exists = 1;
 		} else {
 			*args[arg_i] = arg;
