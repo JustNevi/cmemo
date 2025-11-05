@@ -33,6 +33,8 @@
 #define F_ADD_L "--add"
 #define F_LIST_S "-l"
 #define F_LIST_L "--list"
+#define F_FINGER_S "-f"
+#define F_FINGER_L "--finger-print"
 #define F_EXPORT_S "-x"
 #define F_EXPORT_L "--export"
 #define F_ENCODE_S "-e"
@@ -63,6 +65,7 @@ typedef struct {
 	farg_t init;
 	farg_t add;
 	farg_t list;
+	farg_t finger;
 	farg_t export;
 	farg_t encode;
 	farg_t unit;
@@ -1177,6 +1180,8 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 	fargs->add.arg_req = 0;
 	fargs->list.exists = 0;
 	fargs->list.arg_req = 0;
+	fargs->finger.exists = 0;
+	fargs->finger.arg_req = 0;
 	fargs->export.exists = 0;
 	fargs->export.arg_req = 0;
 	fargs->encode.exists = 0;
@@ -1211,6 +1216,10 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 		};
 		char *list[]	 = {
 			F_LIST_S, 	F_LIST_L,
+			NULL
+		};
+		char *finger[]	 = {
+			F_FINGER_S, F_FINGER_L,
 			NULL
 		};
 		char *export[] 	= {
@@ -1248,6 +1257,8 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 			fargs->add.exists = 1;
 		} else if (arg_is(arg, list)) {
 			fargs->list.exists = 1;
+		} else if (arg_is(arg, finger)) {
+			fargs->finger.exists = 1;
 		} else if (arg_is(arg, export)) {
 			fargs->export.exists = 1;
 		} else if (arg_is(arg, encode)) {
@@ -1445,9 +1456,23 @@ int main(int argc, char *argv[]) {
 				continue; 
 			}
 
-			printf("%s\n", dp->d_name);
+			fprintf(stdout, "%s\n", dp->d_name);
 		}
 		closedir(dirp);
+	} else if (fargs.finger.exists == 1) {
+		bundle_t bl;
+		load_bundle(&bl, work_dir);
+
+		char *fp;
+		if (bin_fingerprint(&fp, bl.public.indentity, 
+							sizeof(bl.public.indentity)) != 0) {
+			fprintf(stderr, "Error to make indentity fingerprint.\n");
+		} else {
+			fprintf(stdout, "%s\n", fp);
+		}
+
+		free_bundle(&bl);
+		free(fp);
 	}
 
     return 0;
