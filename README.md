@@ -54,12 +54,12 @@ cmemo -u 6860b33af65db960db48932aef5d512
 
 To start a conversation, you need to make a request.
 
-You and your interlocutor must agree on a common starting key for the conversation and the ID of the one-time prekey. The key must be 12 characters long and the ID must be from 0 to 99.
+You and your interlocutor must agree on a common starting key for the conversation and the ID of the one-time prekey. The key needs to be from 1 to 32 characters long (above 32 no sense) and the ID must be from 0 to 99.
 
-For example, the key "NONCEUSERKEY" and the ID "67". They must be written using the ":" symbol:
+For example, the key "NONCE_SUPER_KEY" and the ID "67". They must be written using the ":" symbol:
 
 ```
-NONCEUSERKEY:67
+NONCE_SUPER_KEY:67
 ```
 
 You must save the public ephemeral key when requesting.
@@ -67,7 +67,7 @@ You must save the public ephemeral key when requesting.
 Flags: `--request` | `-q`.
 
 ```
-cmemo -q NONCEUSERKEY:67 -u 6860b33 > /tmp/eph.key
+cmemo -q NONCE_SUPER_KEY:67 -u 6860b33 > /tmp/eph.key
 ```
 
 ### Response for conversation
@@ -75,7 +75,7 @@ cmemo -q NONCEUSERKEY:67 -u 6860b33 > /tmp/eph.key
 Flags: `--response` | `-p`.
 
 ```
-cmemo -p NONCEUSERKEY:67 -u 48dabed < /tmp/eph.key
+cmemo -p NONCE_SUPER_KEY:67 -u 48dabed < /tmp/eph.key
 ```
 
 ### Send message
@@ -211,7 +211,7 @@ The main idea of the project is to enable sending end-to-end encrypted messages 
 - [ ] Clean code.
 - [ ] Binding a nickname to unit.
 - [x] Export public bundle.
-- [ ] Size-independent initial key.
+- [x] Size-independent initial key.
 - [ ] Add more errors messages.
 
 ## Contribution
