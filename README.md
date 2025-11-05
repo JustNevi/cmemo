@@ -207,7 +207,7 @@ The main idea of the project is to enable sending end-to-end encrypted messages 
 
 ## TODO
 
-- [ ] Add base64 encoding.
+- [x] Add base64 encoding.
 - [ ] Clean code.
 - [ ] Binding a nickname to unit.
 - [x] Export public bundle.
