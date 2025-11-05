@@ -1396,6 +1396,11 @@ int main(int argc, char *argv[]) {
 			   	  					* MAX_STDIN_LEN);
 		read_bin(msgb, &len, stdin);
 
+		if (len == 1) {
+			free(msgb);
+			return 0;
+		}
+
 		if (fargs.encode.exists == 1) {
 			base64_to_bin(&msgb, &len);
 		}
@@ -1407,7 +1412,7 @@ int main(int argc, char *argv[]) {
 		message_t msg;
 		if (receive(&msg, &enmsg, 
 			        fargs.unit.arg, work_dir) != 0) {
-			fprintf(stderr, "Can not decrypt message.");
+			fprintf(stderr, "Can not decrypt message.\n");
 		} else {
 			msg.data[msg.len] = '\0';
 			fprintf(stdout, "%s", msg.data);
