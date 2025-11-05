@@ -2,6 +2,8 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c99
 LDFLAGS = -lsodium
 
+PREFIX = /usr/local
+
 EXE = cmemo 
 
 SRCS = cmemo.c
@@ -14,6 +16,12 @@ $(EXE): $(OBJS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+install: all
+	install -m 755 $(EXE) $(PREFIX)/bin
+
+uninstall:
+	rm -f $(PREFIX)/bin/$(EXE)
 
 clean:
 	rm -f $(OBJS) $(EXE)
