@@ -398,6 +398,27 @@ void derive_message_keys(message_keys_t *keys, secret_t *secret) {
 							   OMEMO_INFO, secret->key);
 }
 
+void simple_derive(unsigned char *subk, int sublen,
+				   unsigned char *key, int klen) {
+	unsigned char mkey[32];
+	uint8_t subkey[32];
+
+	for (int i = 0; i < (int)sizeof(mkey); i++) {
+		mkey[i] = '*';
+	}
+
+	int len = (int)sizeof(mkey);
+	if (klen < len) {
+		len = klen;
+	}
+	memcpy(mkey, key, len);
+
+	crypto_kdf_derive_from_key(subkey, sizeof(subkey), 
+							   0, OMEMO_INFO, mkey);
+
+	memcpy(subk, subkey, sublen);
+}
+
 void encrypt_message(message_t *enmsg, unsigned char *next_sk,
 					 message_t *msg, secret_t *secret) {
 	message_keys_t keys;
@@ -1050,7 +1071,7 @@ int init(char *work_dir) {
 }
 
 void request(char *unit,unsigned char *ephemeral_pk, 
-			 char *nonce, int opk_id, 
+			 unsigned char *nonce, int opk_id, 
 			 char *work_dir) {
 	bundle_t bl;
 	load_bundle(&bl, work_dir);
@@ -1092,7 +1113,7 @@ void request(char *unit,unsigned char *ephemeral_pk,
 }
 
 void response(char *unit, unsigned char *ephemeral_pk, 
-			  char *nonce, int opk_id,
+			  unsigned char *nonce, int opk_id,
 			  char *work_dir) {
 	bundle_t bl;
 	load_bundle(&bl, work_dir);
@@ -1348,13 +1369,19 @@ int main(int argc, char *argv[]) {
 		free(bin);
 	} else if (fargs.request.exists == 1
 			   && fargs.unit.exists == 1) {
+		unsigned char nonce_buff[32];
 		int opk_id = 0;
-       	char nonce[NONCE_LEN + 1];
 
 		char *arg = fargs.request.arg;
-		opk_id = (int)strtol(arg + NONCE_LEN + 1, NULL, 10);
-		memcpy(nonce, arg, NONCE_LEN);
-		nonce[NONCE_LEN] = '\0';
+		int result = sscanf(arg, "%[^:]:%d", nonce_buff, &opk_id);
+
+		if (result != 2) {
+			fprintf(stderr, "Error parse.\n");
+		}
+
+       	unsigned char nonce[NONCE_LEN];
+		simple_derive(nonce, NONCE_LEN, 
+					  nonce_buff, strlen((char *)nonce_buff));
 
 		int len = (int)crypto_box_PUBLICKEYBYTES;
 		unsigned char *ephemeral_pk;
@@ -1370,13 +1397,19 @@ int main(int argc, char *argv[]) {
 		free(ephemeral_pk);
 	} else if (fargs.response.exists == 1
 			   && fargs.unit.exists == 1) {
+		unsigned char nonce_buff[32];
 		int opk_id = 0;
-       	char nonce[NONCE_LEN + 1];
 
 		char *arg = fargs.response.arg;
-		opk_id = (int)strtol(arg + NONCE_LEN + 1, NULL, 10);
-		memcpy(nonce, arg, NONCE_LEN);
-		nonce[NONCE_LEN] = '\0';
+		int result = sscanf(arg, "%[^:]:%d", nonce_buff, &opk_id);
+
+		if (result != 2) {
+			fprintf(stderr, "Error parse.\n");
+		}
+
+       	unsigned char nonce[NONCE_LEN];
+		simple_derive(nonce, NONCE_LEN, 
+					  nonce_buff, strlen((char *)nonce_buff));
 
 		int len = (int)crypto_box_PUBLICKEYBYTES;
 		unsigned char *ephemeral_pk = malloc(sizeof(unsigned char) 
