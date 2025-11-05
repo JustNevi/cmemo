@@ -31,6 +31,8 @@
 #define F_INIT_L "--init"
 #define F_ADD_S "-a"
 #define F_ADD_L "--add"
+#define F_LIST_S "-l"
+#define F_LIST_L "--list"
 #define F_EXPORT_S "-x"
 #define F_EXPORT_L "--export"
 #define F_ENCODE_S "-e"
@@ -60,6 +62,7 @@ typedef struct {
 typedef struct {
 	farg_t init;
 	farg_t add;
+	farg_t list;
 	farg_t export;
 	farg_t encode;
 	farg_t unit;
@@ -1172,6 +1175,8 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 	fargs->init.arg_req = 0;
 	fargs->add.exists = 0;
 	fargs->add.arg_req = 0;
+	fargs->list.exists = 0;
+	fargs->list.arg_req = 0;
 	fargs->export.exists = 0;
 	fargs->export.arg_req = 0;
 	fargs->encode.exists = 0;
@@ -1202,6 +1207,10 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 		};
 		char *add[]	 = {
 			F_ADD_S, 	F_ADD_L,
+			NULL
+		};
+		char *list[]	 = {
+			F_LIST_S, 	F_LIST_L,
 			NULL
 		};
 		char *export[] 	= {
@@ -1237,6 +1246,8 @@ void load_args(fargs_t *fargs, char *argv[], int c) {
 			fargs->init.exists = 1;
 		} else if (arg_is(arg, add)) {
 			fargs->add.exists = 1;
+		} else if (arg_is(arg, list)) {
+			fargs->list.exists = 1;
 		} else if (arg_is(arg, export)) {
 			fargs->export.exists = 1;
 		} else if (arg_is(arg, encode)) {
@@ -1415,6 +1426,28 @@ int main(int argc, char *argv[]) {
 
 		free(msgb);
 		free(enmsg.data);
+	} else if (fargs.list.exists == 1) {
+		char dir[MAX_PATH_LEN];	
+		make_path(dir, work_dir, UNITS_DIR);
+
+		DIR *dirp = opendir(dir);
+
+		if (dirp == NULL) {
+			fprintf(stderr, "Can not open directory.\n");
+			return 1;
+		}
+
+		struct dirent *dp;
+		while ((dp = readdir(dirp)) != NULL) {
+			if (dp->d_type != 4 
+				|| strcmp(dp->d_name, ".") == 0 
+				|| strcmp(dp->d_name, "..") == 0) {
+				continue; 
+			}
+
+			printf("%s\n", dp->d_name);
+		}
+		closedir(dirp);
 	}
 
     return 0;
