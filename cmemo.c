@@ -1062,6 +1062,15 @@ int init(char *work_dir) {
 	}
 	
 	bundle_t bundle;
+	if (load_bundle(&bundle, work_dir) == 0) {
+		fprintf(stdout, "Bundle already exists. " 
+						"You definitely want to regenerate it? (y/N): ");
+
+		char a = fgetc(stdin); 
+		if (a != 'Y' && a != 'y') {
+			return 1;
+		}
+	}
 	create_bundle(&bundle);
 
 	status = store_bundle(&bundle, work_dir);
