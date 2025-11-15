@@ -197,7 +197,7 @@ echo "Hi, Alice" | cmemo -s -u e2e5a35dcd2 -e
 Alice:
 
 ```
-echo "f5fcde767b83..." cmemo -r -u 0bfb608d2 -e
+echo "f5fcde767b83..." | cmemo -r -u 0bfb608d2 -e
 # Output: Hi, Alice
 ```
 
