@@ -106,7 +106,7 @@ echo "Hello, how are you?" | cmemo -s -u 48dabed -e
 ```
 
 ```
-echo "e831361abb5b73d..." cmemo -r -u 6860b33 -e
+echo "e831361abb5b73d..." | cmemo -r -u 6860b33 -e
 # Output: Hello, how are you?
 ```
 
